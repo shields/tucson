@@ -5,6 +5,8 @@ TEST_BROKER_SOURCE = .build/mosquitto-source
 TEST_BROKER_BUILD = .build/mosquitto-build
 TEST_PATH = $(abspath $(TEST_BROKER_BUILD)/src):$(PATH)
 IMAGE ?= tuya-mqtt:test
+NODE ?= node
+HOBOKEN_SOURCE ?=
 IMAGE_PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 REVISION ?= $(shell git rev-parse HEAD)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD)
@@ -14,7 +16,7 @@ CRANE_SHA256_x86_64 = 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9e
 CRANE_ARCH = $(shell uname -m | sed 's/aarch64/arm64/')
 export REVISION
 
-.PHONY: setup build run fmt lint test integration test-broker test-broker-deps image test-image image-export release-tools release
+.PHONY: setup build run fmt lint test integration homekit test-broker test-broker-deps image test-image image-export release-tools release
 
 setup:
 	uv sync --frozen
@@ -44,6 +46,10 @@ test:
 
 integration:
 	PATH="$(TEST_PATH)" uv run --frozen pytest -m integration
+
+homekit:
+	test -x "$(abspath $(TEST_BROKER_BUILD)/src/mosquitto)"
+	PATH="$(TEST_PATH)" HOBOKEN_SOURCE="$(HOBOKEN_SOURCE)" NODE="$(NODE)" uv run --frozen python -m pytest -p tests.conftest qualification
 
 image:
 	docker buildx build --network host --platform "$(IMAGE_PLATFORM)" --provenance=false --build-arg REVISION="$(REVISION)" --build-arg SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" --output type=docker,rewrite-timestamp=true --tag "$(IMAGE)" .

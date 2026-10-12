@@ -121,3 +121,25 @@ controller serves commands, the silent peer remains offline, and process
 shutdown completes with the production socket timeouts and worker join bound.
 These tests qualify application/library coordination, not actual Sunbeam
 firmware, physical zone orientation, or Home/Siri behavior.
+
+## Controller-through-HomeKit qualification
+
+Run `make homekit HOBOKEN_SOURCE=/path/to/hoboken NODE=/path/to/node24` with
+both checkouts' frozen dependencies installed. The selected target requires
+Hoboken's `integration/tucson-roundtrip.ts` driver, Node.js 24, and the pinned
+Mosquitto executable. It fails when prerequisites are absent.
+
+The three protocol cases use the actual Tucson process and Hoboken bridge,
+paired HAP HTTP requests, MQTT 5, and the real TinyTuya/TCP simulator. They
+verify independent levels on both zones, stateful preheat, and off precedence
+with selected-level preservation. Decoded device writes must match exactly four
+expected payloads. A controller-originated push updates HomeKit without another
+write; Tucson shutdown then makes both zones unavailable. Process, socket, and
+pairing-state cleanup runs on failures as well as successful exits.
+
+The assertions also check that synthetic key/password values do not appear in
+the collected application logs. These cases qualify interoperability between the
+two applications and share the simulator limitations above. They do not
+establish the physical Sunbeam mapping, firmware behavior, or Home/Siri UI
+compatibility. The two repositories' required checks remain separate; run this
+additional target when qualifying their combined revisions.

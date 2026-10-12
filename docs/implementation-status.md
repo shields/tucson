@@ -30,14 +30,20 @@ Hoboken's reviewed commits are on the local
 `task/f39d6bee-3dfc-4a1a-a8db-4e8b20ec9eb7/sunbeam-homekit` branch. Its Git
 remote still rejects pushes with HTTP 403; Tucson's task branch is pushed.
 
-The additional Hoboken integration suite is under review. Its nine mattress
-cases and the existing eleven WLED cases pass together on Node 24.21.0. The
-mattress cases use a pinned Mosquitto 2.1.2 build and actual paired HAP HTTP
-connections. They cover both zones, off precedence, stateful preheat, rejected
-and retained results, session changes, the full HAP write deadline, and broker
-restart without command replay. Workflow checks and the broker's Renovate
-extraction pass locally, with native RE2 enabled for validation. These cases
-simulate the MQTT controller contract; they do not exercise Sunbeam hardware.
+Hoboken's integration suite is committed in `316e995`. Its nine mattress cases
+and the existing eleven WLED cases pass together on Node 24.21.0. The mattress
+cases use a pinned Mosquitto 2.1.2 build and actual paired HAP HTTP connections.
+They cover both zones, off precedence, stateful preheat, rejected and retained
+results, session changes, the full HAP write deadline, and broker restart
+without command replay. Workflow checks and the broker's Renovate extraction
+pass locally, with native RE2 enabled for validation. These cases simulate the
+MQTT controller contract; they do not exercise Sunbeam hardware.
+
+`make homekit` additionally exercises the actual Tucson and Hoboken processes
+together against the TCP simulator on protocols 3.3, 3.4, and 3.5. It checks
+decoded writes, physical-style state pushes, and shutdown-driven HomeKit
+unavailability. This target requires both checkouts and Node.js 24; it does not
+silently skip missing prerequisites.
 
 ## Shared configuration differences
 
