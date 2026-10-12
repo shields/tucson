@@ -2,6 +2,9 @@ version = 1
 revision = 5
 requires-python = ">=3.15"
 
+[manifest]
+overrides = [{ name = "tinytuya", specifier = "==1.20.0" }]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
@@ -667,6 +670,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "tuyamock" },
     { name = "ty" },
     { name = "zizmor" },
 ]
@@ -687,8 +691,21 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.17.0" },
+    { name = "tuyamock", specifier = "==0.0.6" },
     { name = "ty", specifier = ">=0.0.86" },
     { name = "zizmor", specifier = ">=1.30.1" },
+]
+
+[[package]]
+name = "tuyamock"
+version = "0.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tinytuya" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/88/69/5892831ed0afed3006bb1314a7466ab138adb75584bd20a258e644bbdb01/tuyamock-0.0.6.tar.gz", hash = "sha256:0e6908e9123d7685c854af8d97164b220f45e9669d57ac3c5dce70250edc3a85", size = 46779, upload-time = "2026-07-03T07:03:58.718Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/f5/922d14736ff360b8b6d9416805d937aad1c5991762af92b809df7f5a9c44/tuyamock-0.0.6-py3-none-any.whl", hash = "sha256:b068e46320bc6d033e3663c1d85180670192683c8a83f219a798dab980418efd", size = 32068, upload-time = "2026-07-03T07:03:57.596Z" },
 ]
 
 [[package]]

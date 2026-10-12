@@ -29,6 +29,7 @@ jobs:
       - run: make setup
       - run: make lint
       - run: make test
+      - run: make integration
       - run: make build
   zizmor:
     name: Workflow security
@@ -41,3 +42,4 @@ jobs:
         with:
           persona: pedantic
           advanced-security: false
+          version: "1.30.1"

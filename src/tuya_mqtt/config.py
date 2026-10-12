@@ -100,7 +100,11 @@ class ControllerConfig(StrictModel):
         if address.is_unspecified or address.is_multicast:
             message = "controller must have a unicast address"
             raise ValueError(message)
-        if self.name == "bridge" or self.zones[0] == self.zones[1]:
+        if (
+            self.name == "bridge"
+            or self.zones[0] == self.zones[1]
+            or "availability" in self.zones
+        ):
             message = "duplicate or reserved topic path"
             raise ValueError(message)
         return self

@@ -74,6 +74,7 @@ def test_secret_files_and_no_mqtt_password(
         ("controller", "ip", "224.0.0.1"),
         ("controller", "ip", "mqtt.lan"),
         ("controller", "zones", ["left", "left"]),
+        ("controller", "zones", ["availability", "right"]),
         ("controller", "zones", ["left"]),
         ("controller", "local_key", {"file": "/nonexistent/secret"}),
     ],
