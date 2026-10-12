@@ -199,3 +199,34 @@ def test_shutdown_bound_violation_is_fatal(controller_config: ControllerConfig) 
         release.set()
         worker.join(2)
     assert device.calls[-1][0] == "close"
+
+
+def test_receipt_time_prevents_a_delayed_command_start(
+    controller_config: ControllerConfig,
+) -> None:
+    config = controller_config.model_copy(update={"write_mode": "multi_dp"})
+    clock = Clock(now=10)
+    device = Device(clock)
+    pause = threading.Event()
+    device.receive_hook = lambda: pause.wait(0.01)
+    worker = ControllerWorker(config, lambda: device, clock=clock, logger=Log())
+    worker.set_session("session")
+    worker.start()
+    completed: list[Completion] = []
+
+    def finished() -> bool:
+        completed.extend(worker.drain_results())
+        return bool(completed)
+
+    try:
+        eventually(lambda: worker.snapshot.online, worker)
+        command = parse_command(b'{"request_id":"delayed","power":true}')
+        assert worker.submit(0, command, "session", received_at=0) is None
+        eventually(finished, worker)
+        assert completed[0].result.outcome is Outcome.REJECTED
+        assert completed[0].result.error_code is ErrorCode.EXPIRED
+        assert completed[0].request.received_at == 0
+        assert not device.writes
+    finally:
+        worker.stop()
+        worker.join(2)

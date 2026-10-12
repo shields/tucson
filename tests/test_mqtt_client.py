@@ -36,6 +36,9 @@ class RawFake:
     def close_transport(self) -> None:
         self.closed += 1
 
+    def abort_transport(self) -> None:
+        self.close_transport()
+
     def check_connection(self) -> None:
         if self.failure is not None:
             raise self.failure
@@ -144,7 +147,7 @@ async def test_cleanup_failure_preserves_application_failure(
     with pytest.raises(ExceptionGroup) as caught:
         await client.__aexit__(ValueError, original, None)
     assert caught.value.exceptions[0] is original
-    assert raw.closed == 1
+    assert raw.closed == 2
     with pytest.raises(ExceptionGroup) as network:
         await client.__aexit__(
             adapter.MQTTFailureError, adapter.MQTTFailureError("network"), None

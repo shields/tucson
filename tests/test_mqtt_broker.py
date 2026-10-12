@@ -184,3 +184,21 @@ async def test_real_incoming_overflow_fails_and_triggers_last_will(
             assert message.payload == b"offline"
             with pytest.raises(MQTTFailureError, match="message stream failed"):
                 await anext(client.messages)
+
+
+async def test_application_failure_aborts_transport_and_triggers_last_will(
+    broker: Broker, config_path: Path, secret_env: dict[str, str]
+) -> None:
+    await broker.ready()
+    resolved = settings(config_path, secret_env, broker.port)
+    async with aiomqtt.Client(
+        "127.0.0.1", broker.port, protocol=aiomqtt.ProtocolVersion.V5
+    ) as observer:
+        await observer.subscribe("tuya/bridge/availability", qos=1)
+        failure = ValueError("application failure")
+        with pytest.raises(ValueError, match="application failure") as caught:
+            async with Client(resolved, None):
+                raise failure
+        assert caught.value is failure
+        message = await asyncio.wait_for(anext(observer.messages), 3)
+        assert message.payload == b"offline"

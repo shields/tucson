@@ -87,7 +87,9 @@ fails and triggers the offline Last Will, and persisted broker data does not
 preserve a nonretained heartbeat. These qualify the adapter; daemon command
 routing and recovery still need process tests. An overflowing incoming queue
 also closes the connection and triggers its Last Will, while preventing queued
-commands from escaping that failed session.
+commands from escaping that failed session. An unexpected application failure
+also aborts the socket so the broker publishes the offline Last Will; a graceful
+disconnect cannot leave retained online state behind after a fatal task failure.
 
 CI builds the broker from the official
 [2.1.2 source revision](https://github.com/eclipse-mosquitto/mosquitto/tree/99fa50f30e325609394c324c8ff71cfbbe95d8ab)

@@ -511,9 +511,14 @@ class ControllerWorker:
         self._mailbox.refresh()
 
     def submit(
-        self, zone: int, command: Command, session_id: str
+        self,
+        zone: int,
+        command: Command,
+        session_id: str,
+        *,
+        received_at: float | None = None,
     ) -> CommandResult | None:
-        now = self._clock()
+        now = self._clock() if received_at is None else received_at
         request = Request(
             zone,
             command,

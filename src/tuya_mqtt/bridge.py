@@ -1,0 +1,474 @@
+import asyncio
+import json
+from hashlib import sha256
+from random import random
+from time import monotonic
+from typing import Protocol, cast
+from uuid import uuid4
+lazy from collections.abc import Awaitable, Callable, Mapping
+
+import structlog
+
+from .controller import STALE_TIMEOUT, START_TIMEOUT
+from .domain import (
+    BridgeError,
+    Command,
+    CommandResult,
+    Completion,
+    ControllerSnapshot,
+    ErrorCode,
+    Outcome,
+    ZoneState,
+)
+from .json_codec import InvalidJSONError, decode
+from .mqtt_client import MQTTFailureError
+from .profiles.sunbeam import (
+    MAX_PAYLOAD_BYTES,
+    MAX_REQUEST_ID,
+    MIN_PRINTABLE,
+    parse_command,
+)
+from .requests import Admission, RequestLedger
+lazy from .config import ResolvedConfig
+lazy from .controller import ControllerLog
+lazy from .mqtt_client import Message, MQTTConnection
+
+HEARTBEAT_INTERVAL = 15.0
+MONITOR_INTERVAL = 0.05
+MAX_BACKOFF = 60.0
+
+
+class Worker(Protocol):
+    @property
+    def snapshot(self) -> ControllerSnapshot: ...
+    @property
+    def queue_depth(self) -> int: ...
+    def set_session(self, session_id: str | None) -> None: ...
+    def refresh(self) -> None: ...
+    def submit(
+        self,
+        zone: int,
+        command: Command,
+        session_id: str,
+        *,
+        received_at: float | None = None,
+    ) -> CommandResult | None: ...
+    def drain_results(self) -> tuple[Completion, ...]: ...
+    def start(self) -> None: ...
+    def stop(self) -> None: ...
+    def check(self) -> None: ...
+    def join(self) -> None: ...
+
+
+class SessionStoppedError(Exception):
+    pass
+
+
+class IntervalFinishedError(Exception):
+    pass
+
+
+def random_id() -> str:
+    return str(uuid4())
+
+
+def encode(payload: Mapping[str, object]) -> str:
+    return json.dumps(payload, separators=(",", ":"), allow_nan=False)
+
+
+def online(view: ControllerSnapshot, session_id: str | None, now: float) -> bool:
+    fresh_at = (
+        view.last_full_status
+        if view.last_full_status is not None
+        else view.synchronized_at
+    )
+    return (
+        session_id is not None
+        and view.session_id == session_id
+        and view.online
+        and all(zone.usable for zone in view.zones)
+        and fresh_at is not None
+        and now - fresh_at < STALE_TIMEOUT
+    )
+
+
+class Bridge:
+    def __init__(
+        self,
+        resolved: ResolvedConfig,
+        workers: tuple[Worker, ...],
+        mqtt_factory: Callable[[], MQTTConnection],
+        *,
+        clock: Callable[[], float] = monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        jitter: Callable[[], float] = random,
+        identifiers: Callable[[], str] = random_id,
+        logger: ControllerLog | None = None,
+    ) -> None:
+        if len(workers) != len(resolved.config.controllers):
+            message = "one worker is required per controller"
+            raise ValueError(message)
+        self.config = resolved.config
+        self.workers = workers
+        self.stop_requested = asyncio.Event()
+        self.connected = False
+        self.running = False
+        self.session_id: str | None = None
+        self.progress_at = clock()
+        self.heartbeat_at: float | None = None
+        self.mqtt_reconnects = 0
+        self.mqtt_failures = 0
+        self.last_error: ErrorCode | None = None
+        self.outcomes: dict[tuple[int, int, Outcome, ErrorCode | None], int] = {}
+        self.latency_totals: dict[tuple[int, int], tuple[int, float]] = {}
+        self._clock = clock
+        self._sleep = sleep
+        self._jitter = jitter
+        self._identifiers = identifiers
+        self._mqtt_factory = mqtt_factory
+        self._log = logger or cast("ControllerLog", structlog.get_logger())
+        self._admitting = False
+        self._synchronized = False
+        self._ledgers: dict[tuple[int, int], RequestLedger] = {}
+        self._routes = {
+            f"{self.config.mqtt.topic_prefix}/{controller.name}/{name}/{action}": (
+                index,
+                zone,
+                action,
+            )
+            for index, controller in enumerate(self.config.controllers)
+            for zone, name in enumerate(controller.zones)
+            for action in ("set", "get")
+        }
+
+    def stop(self) -> None:
+        self._admitting = False
+        self.stop_requested.set()
+        for worker in self.workers:
+            worker.stop()
+
+    def zone_topic(self, index: int, zone: int) -> str:
+        config = self.config.controllers[index]
+        return f"{self.config.mqtt.topic_prefix}/{config.name}/{config.zones[zone]}"
+
+    def controller_topic(self, index: int) -> str:
+        return (
+            f"{self.config.mqtt.topic_prefix}/"
+            f"{self.config.controllers[index].name}/availability"
+        )
+
+    def _record(
+        self, index: int, zone: int, result: CommandResult, elapsed: float
+    ) -> None:
+        key = (index, zone, result.outcome, result.error_code)
+        self.outcomes[key] = self.outcomes.get(key, 0) + 1
+        key_zone = (index, zone)
+        count, total = self.latency_totals.get(key_zone, (0, 0.0))
+        self.latency_totals[key_zone] = count + 1, total + elapsed
+        log = self._log.info if result.outcome is Outcome.CONFIRMED else self._log.error
+        log(
+            "command_result",
+            controller=self.config.controllers[index].name,
+            zone=self.config.controllers[index].zones[zone],
+            operation="command",
+            request_id=result.request_id,
+            outcome=result.outcome.value,
+            error_code=result.error_code,
+            duration=elapsed,
+        )
+
+    def _drain(self, index: int) -> tuple[Completion, ...]:
+        results = self.workers[index].drain_results()
+        for completion in results:
+            self._record(
+                index,
+                completion.request.zone,
+                completion.result,
+                completion.completed_at - completion.request.received_at,
+            )
+        return results
+
+    async def _result(
+        self, client: MQTTConnection, index: int, zone: int, result: CommandResult
+    ) -> None:
+        await client.publish(
+            f"{self.zone_topic(index, zone)}/result",
+            encode(result.payload()),
+            qos=0,
+            retain=False,
+        )
+
+    def _identity(self, payload: bytes) -> tuple[str, bytes]:
+        request_id = self._identifiers()
+        fingerprint = sha256(payload).digest()
+        if len(payload) <= MAX_PAYLOAD_BYTES:
+            try:
+                data = decode(payload)
+            except InvalidJSONError:
+                return request_id, fingerprint
+            if isinstance(data, dict):
+                supplied = data.get("request_id")
+                if (
+                    isinstance(supplied, str)
+                    and 1 <= len(supplied) <= MAX_REQUEST_ID
+                    and all(ord(char) >= MIN_PRINTABLE for char in supplied)
+                ):
+                    request_id = supplied
+                fingerprint = sha256(
+                    json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+                ).digest()
+        return request_id, fingerprint
+
+    async def handle(self, client: MQTTConnection, message: Message) -> None:
+        received_at = (
+            self._clock() if message.received_at is None else message.received_at
+        )
+        route = self._routes.get(message.topic)
+        if route is None:
+            return
+        index, zone, action = route
+        request_id, fingerprint = self._identity(message.payload)
+        error = (
+            ErrorCode.RETAINED_COMMAND
+            if message.retained
+            else ErrorCode.INVALID_COMMAND
+            if action == "get" and message.payload
+            else None
+        )
+        if error is not None:
+            result = CommandResult(request_id, Outcome.REJECTED, error)
+            self._record(index, zone, result, self._clock() - received_at)
+            await self._result(client, index, zone, result)
+            return
+        if action == "get":
+            self.workers[index].refresh()
+            return
+        ledger = self._ledgers[index, zone]
+        decision = ledger.begin(request_id, fingerprint)
+        if decision.admission is Admission.PENDING:
+            return
+        if decision.result is not None:
+            if decision.admission is Admission.REJECTED:
+                self._record(index, zone, decision.result, self._clock() - received_at)
+            await self._result(client, index, zone, decision.result)
+            return
+        try:
+            command = parse_command(message.payload, generated_id=request_id)
+        except BridgeError as failure:
+            result = CommandResult(request_id, Outcome.REJECTED, failure.code)
+        else:
+            if (
+                not self._admitting
+                or self.stop_requested.is_set()
+                or not online(
+                    self.workers[index].snapshot, self.session_id, self._clock()
+                )
+            ):
+                result = CommandResult(
+                    request_id, Outcome.REJECTED, ErrorCode.UNAVAILABLE
+                )
+            elif self._clock() - received_at >= START_TIMEOUT:
+                result = CommandResult(request_id, Outcome.REJECTED, ErrorCode.EXPIRED)
+            else:
+                result = self.workers[index].submit(
+                    zone, command, cast("str", self.session_id), received_at=received_at
+                )
+            if result is None:
+                return
+        ledger.finish(result)
+        self._record(index, zone, result, self._clock() - received_at)
+        await self._result(client, index, zone, result)
+
+    async def _consume(self, client: MQTTConnection) -> None:
+        async for message in client.messages:
+            await self.handle(client, message)
+        message = "MQTT command stream ended"
+        raise MQTTFailureError(message)
+
+    async def _heartbeat(self, client: MQTTConnection) -> None:
+        while True:
+            await client.publish(
+                f"{self.config.mqtt.topic_prefix}/bridge/heartbeat",
+                encode({"session_id": self.session_id}),
+                qos=0,
+                retain=False,
+            )
+            self.heartbeat_at = self._clock()
+            await self._sleep(HEARTBEAT_INTERVAL)
+
+    async def _emit(self, client: MQTTConnection) -> None:
+        snapshots: dict[tuple[int, int], tuple[str, int, int]] = {}
+        availability: dict[int, bool] = {}
+        while True:
+            for index, worker in enumerate(self.workers):
+                view = worker.snapshot
+                for zone in range(2):
+                    state = (
+                        view.zones[zone]
+                        if view.session_id == self.session_id
+                        else ZoneState()
+                    )
+                    payload = encode(state.payload(cast("str", self.session_id)))
+                    version = payload, view.refresh_revision, view.generation
+                    if snapshots.get((index, zone)) != version:
+                        await client.publish(
+                            self.zone_topic(index, zone), payload, qos=1, retain=True
+                        )
+                        snapshots[index, zone] = version
+                available = online(view, self.session_id, self._clock())
+                if availability.get(index) != available:
+                    await client.publish(
+                        self.controller_topic(index),
+                        "online" if available else "offline",
+                        qos=1,
+                        retain=True,
+                    )
+                    availability[index] = available
+                results = self._drain(index)
+                for completion in results:
+                    if completion.request.session_id == self.session_id:
+                        self._ledgers[index, completion.request.zone].finish(
+                            completion.result
+                        )
+                for completion in results:
+                    if completion.request.session_id == self.session_id:
+                        await self._result(
+                            client, index, completion.request.zone, completion.result
+                        )
+            await self._sleep(MONITOR_INTERVAL)
+
+    async def _stop_session(self) -> None:
+        await self.stop_requested.wait()
+        self._admitting = False
+        for worker in self.workers:
+            worker.stop()
+        raise SessionStoppedError
+
+    async def _offline(self, client: MQTTConnection) -> None:
+        for index in range(len(self.workers)):
+            await client.publish(
+                self.controller_topic(index), "offline", qos=1, retain=True
+            )
+        await client.publish(
+            f"{self.config.mqtt.topic_prefix}/bridge/availability",
+            "offline",
+            qos=1,
+            retain=True,
+        )
+
+    async def _session(self) -> None:
+        self._synchronized = False
+        async with self._mqtt_factory() as client:
+            try:
+                try:
+                    async with asyncio.TaskGroup() as group:
+                        group.create_task(self._stop_session())
+                        self.session_id = self._identifiers()
+                        self.heartbeat_at = None
+                        await self._offline(client)
+                        for topic in self._routes:
+                            await client.subscribe(topic)
+                        self._ledgers = {
+                            (index, zone): RequestLedger(clock=self._clock)
+                            for index in range(len(self.workers))
+                            for zone in range(2)
+                        }
+                        for worker in self.workers:
+                            worker.set_session(self.session_id)
+                        await client.publish(
+                            f"{self.config.mqtt.topic_prefix}/bridge/availability",
+                            "online",
+                            qos=1,
+                            retain=True,
+                        )
+                        self.connected = True
+                        self._synchronized = True
+                        self._admitting = True
+                        self.last_error = None
+                        self._log.info(
+                            "mqtt_connected",
+                            operation="connect",
+                            session_id=self.session_id,
+                        )
+                        group.create_task(self._consume(client))
+                        group.create_task(self._emit(client))
+                        group.create_task(self._heartbeat(client))
+                except* SessionStoppedError:
+                    pass
+                await self._offline(client)
+            finally:
+                self.connected = False
+                self._admitting = False
+                for worker in self.workers:
+                    worker.set_session(None)
+
+    async def _interval(self, delay: float) -> None:
+        async def elapsed() -> None:
+            await self._sleep(delay)
+            raise IntervalFinishedError
+
+        async def stopped() -> None:
+            await self.stop_requested.wait()
+            raise IntervalFinishedError
+
+        try:
+            async with asyncio.TaskGroup() as group:
+                group.create_task(elapsed())
+                group.create_task(stopped())
+        except* IntervalFinishedError:
+            pass
+
+    async def _broker_loop(self) -> None:
+        backoff = 1.0
+        while not self.stop_requested.is_set():
+            try:
+                await self._session()
+            except* MQTTFailureError:
+                self.mqtt_failures += 1
+                self.last_error = ErrorCode.MQTT_ERROR
+                self._log.error(
+                    "mqtt_disconnected",
+                    operation="connection",
+                    error_code=ErrorCode.MQTT_ERROR,
+                )
+            if self.stop_requested.is_set():
+                break
+            if self._synchronized:
+                backoff = 1.0
+            delay = min(MAX_BACKOFF, backoff * (1 + 0.25 * self._jitter()))
+            backoff = min(MAX_BACKOFF, backoff * 2)
+            self.mqtt_reconnects += 1
+            await self._interval(delay)
+
+    async def _monitor(self) -> None:
+        while not self.stop_requested.is_set():
+            self.progress_at = self._clock()
+            for index, worker in enumerate(self.workers):
+                worker.check()
+                if not self.connected:
+                    self._drain(index)
+            await self._interval(MONITOR_INTERVAL)
+
+    async def run(self) -> None:
+        try:
+            for worker in self.workers:
+                worker.start()
+            self.running = True
+            async with asyncio.TaskGroup() as group:
+                group.create_task(self._broker_loop())
+                group.create_task(self._monitor())
+        finally:
+            self.running = False
+            self.connected = False
+            self._admitting = False
+            for worker in self.workers:
+                worker.stop()
+            results = await asyncio.gather(
+                *(asyncio.to_thread(worker.join) for worker in self.workers),
+                return_exceptions=True,
+            )
+            for index in range(len(self.workers)):
+                self._drain(index)
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result

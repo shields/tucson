@@ -161,6 +161,10 @@ class VerifiedClient(aiomqtt.Client):
             message = "MQTT connection closed"
             raise aiomqtt.MqttError(message)
 
+    def abort_transport(self) -> None:
+        self._fail(aiomqtt.MqttError("MQTT session aborted"))
+        self.close_transport()
+
     def close_transport(self) -> None:
         self._closing = True
         # Callback failures can complete aiomqtt's future with the socket still open.
@@ -209,6 +213,8 @@ class Client:
         traceback: TracebackType | None,
     ) -> None:
         try:
+            if exc is not None:
+                self._client.abort_transport()
             await self._client.__aexit__(exc_type, exc, traceback)
         except aiomqtt.MqttError:
             message = "MQTT disconnect failed"
