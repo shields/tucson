@@ -15,6 +15,8 @@ class ErrorCode(StrEnum):
     DEVICE_ERROR = "device_error"
     STALE = "stale"
     WRITE_DISABLED = "write_disabled"
+    MQTT_ERROR = "mqtt_error"
+    RETAINED_COMMAND = "retained_command"
 
 
 class BridgeError(Exception):

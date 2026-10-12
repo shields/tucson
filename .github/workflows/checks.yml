@@ -28,6 +28,8 @@ jobs:
           bun-version: "1.4.3"
       - run: make setup
       - run: make lint
+      - run: make test-broker-deps
+      - run: make test-broker
       - run: make test
       - run: make integration
       - run: make build

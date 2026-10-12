@@ -11,7 +11,11 @@ and run the coverage gate with `make test`.
 
 Use the [setup guide](docs/setup.md) for credential storage, configuration
 validation, and read-only inspection. `make integration` runs the
-[real-library TCP qualification](docs/adapter-qualification.md).
+[real-library TCP and MQTT qualification](docs/adapter-qualification.md). The
+tests require Mosquitto; `make test-broker` builds the pinned test version with
+CMake, a C/C++ compiler, OpenSSL, and cJSON development files. On Debian or
+Ubuntu, `make test-broker-deps` installs those build prerequisites. Test targets
+prefer the built broker, then a Mosquitto executable on `PATH`.
 
 Hardware qualification is required before production use. The built-in profile
 starts from the published dual-zone mapping; physical behavior and write

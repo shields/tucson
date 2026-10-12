@@ -63,3 +63,34 @@ milliseconds. The integration tests shorten request timeouts for injected faults
 and use bounded events for synchronization. Final worker shutdown bounds,
 command-confirmation semantics, and actual hardware behavior remain separate
 acceptance gates.
+
+## MQTT adapter qualification
+
+The transport uses aiomqtt 2.5.1 with MQTT 5, Clean Start, a zero session-expiry
+interval, and bounded incoming/outgoing queues. Subscriptions request QoS 0,
+Retain Handling 2, and Retain As Published. Incoming overflow fails the
+connection; it cannot silently discard accepted work. Publication is serialized
+and retained operational messages use QoS 1. Messages carry their monotonic
+arrival time so deadlines include input-queue waiting. Empty MQTT payloads
+remain empty bytes.
+
+The pinned aiomqtt implementation ignores negative PUBACK reason codes. A small
+adapter override detects a rejected publication, invalidates the connection, and
+closes its socket outside Paho’s callback mutex. Socket cleanup also covers
+failed/cancelled connection attempts and callback failures. The bridge will
+treat these as connection failures and require a fresh session.
+
+Real-broker cases use Mosquitto 2.1.2 and independent clients. They verify that
+old retained commands are suppressed on subscription, live retained flags are
+preserved, fresh subscribers receive retained state, a denied QoS 1 publication
+fails and triggers the offline Last Will, and persisted broker data does not
+preserve a nonretained heartbeat. These qualify the adapter; daemon command
+routing and recovery still need process tests. An overflowing incoming queue
+also closes the connection and triggers its Last Will, while preventing queued
+commands from escaping that failed session.
+
+CI builds the broker from the official
+[2.1.2 source revision](https://github.com/eclipse-mosquitto/mosquitto/tree/99fa50f30e325609394c324c8ff71cfbbe95d8ab)
+using `make test-broker`. Test targets prefer that binary over the system
+broker. Missing Mosquitto fails the tests. Compatibility with the deployed
+broker remains a qualification requirement.

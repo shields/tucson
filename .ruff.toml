@@ -46,3 +46,6 @@ ignore = [
 "src/tuya_mqtt/tuya_client.py" = ["N802"]
 "tests/test_tuya_client.py" = ["N802"]
 "tests/test_tuya_tcp.py" = ["SLF001"]
+"tests/broker.py" = ["S603", "S607"]
+"tests/test_mqtt_client.py" = ["SLF001"]
+"tests/test_mqtt_broker.py" = ["SLF001"]
