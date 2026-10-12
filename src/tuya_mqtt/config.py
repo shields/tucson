@@ -93,6 +93,7 @@ class ControllerConfig(StrictModel):
     local_key: SecretReference
     profile: Literal["sunbeam-dual"]
     zones: tuple[Name, Name]
+    write_mode: Literal["disabled", "multi_dp", "level_before_power"] = "disabled"
 
     @model_validator(mode="after")
     def check_identity(self) -> Self:

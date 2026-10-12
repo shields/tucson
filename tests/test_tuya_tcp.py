@@ -2,16 +2,20 @@ import socket
 import threading
 from contextlib import suppress
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import Any
-lazy from collections.abc import Iterator
+lazy from collections.abc import Callable, Iterator
 
 import pytest
 from tuyamock import MockDevice, Session
 
-from tuya_mqtt.domain import BridgeError
-from tuya_mqtt.profiles.sunbeam import REQUIRED_DPS
+from tuya_mqtt.controller import ControllerWorker
+from tuya_mqtt.domain import BridgeError, Completion, Outcome
+from tuya_mqtt.profiles.sunbeam import REQUIRED_DPS, parse_command
 from tuya_mqtt.tuya_client import TinyTuyaClient
 lazy from tuya_mqtt.config import ControllerConfig
+
+from .controller_fakes import Log
 
 pytestmark = pytest.mark.integration
 KEY = "test-key-16-byte"
@@ -229,3 +233,194 @@ def test_device22_requests_full_profile(
             assert client.status() == BASELINE
         finally:
             client.close()
+
+
+def wait_worker(predicate: Callable[[], bool], worker: ControllerWorker) -> None:
+    deadline = monotonic() + 3
+    pause = threading.Event()
+    while not predicate():
+        worker.check()
+        assert monotonic() < deadline
+        pause.wait(0.01)
+
+
+def collect_completion(worker: ControllerWorker) -> Completion:
+    results: list[Completion] = []
+
+    def completed() -> bool:
+        results.extend(worker.drain_results())
+        return bool(results)
+
+    wait_worker(completed, worker)
+    assert len(results) == 1
+    return results[0]
+
+
+def worker_for(
+    simulator: Simulator, config: ControllerConfig, *, mode: str = "multi_dp"
+) -> ControllerWorker:
+    config = config.model_copy(
+        update={
+            "ip": "127.0.0.1",
+            "protocol_version": simulator.mock.config.version,
+            "write_mode": mode,
+        }
+    )
+    worker = ControllerWorker(
+        config,
+        lambda: TinyTuyaClient(
+            config, KEY, port=simulator.mock.port, request_timeout=0.2
+        ),
+        logger=Log(),
+    )
+    worker.set_session("session")
+    worker.start()
+    return worker
+
+
+@pytest.mark.parametrize("simulator", ["3.3", "3.4", "3.5"], indirect=True)
+def test_worker_with_real_adapter_and_both_zones(
+    simulator: Simulator, controller_config: ControllerConfig
+) -> None:
+    worker = worker_for(simulator, controller_config)
+    try:
+        wait_worker(lambda: worker.snapshot.online, worker)
+        assert (
+            worker.submit(
+                0,
+                parse_command(b'{"request_id":"zone-a","power":true,"heat_level":6}'),
+                "session",
+            )
+            is None
+        )
+        first = collect_completion(worker)
+        assert first.result.outcome is Outcome.CONFIRMED
+        assert (
+            worker.submit(
+                1, parse_command(b'{"request_id":"zone-b","preheat":true}'), "session"
+            )
+            is None
+        )
+        assert collect_completion(worker).result.outcome is Outcome.CONFIRMED
+        assert simulator.writes == [{"14": True, "20": "level_6"}, {"25": True}]
+        physical_change = {"14": False, "20": "level_4"}
+        simulator.mock.dps.update(physical_change)
+        assert simulator.mock.push(physical_change)
+        wait_worker(lambda: worker.snapshot.zones[0].power is False, worker)
+        assert worker.snapshot.zones[0].heat_level == 4
+        assert worker.snapshot.zones[1].preheat is True
+        revision = worker.snapshot.refresh_revision
+        worker.refresh()
+        wait_worker(lambda: worker.snapshot.refresh_revision > revision, worker)
+        assert simulator.mock.server.connections == 1
+    finally:
+        worker.stop()
+        worker.join(3)
+
+
+@pytest.mark.parametrize("simulator", ["3.3", "3.4", "3.5"], indirect=True)
+def test_worker_partial_failure_reconnects_without_replay(
+    simulator: Simulator, controller_config: ControllerConfig
+) -> None:
+    worker = worker_for(simulator, controller_config, mode="level_before_power")
+    try:
+        wait_worker(lambda: worker.snapshot.online, worker)
+        simulator.mode = "close"
+        assert (
+            worker.submit(0, parse_command(b'{"power":true,"heat_level":6}'), "session")
+            is None
+        )
+        result = collect_completion(worker)
+        assert result.result.outcome is Outcome.UNCONFIRMED
+        assert simulator.writes == [{"20": "level_6"}]
+        wait_worker(
+            lambda: worker.snapshot.online and worker.snapshot.generation >= 2, worker
+        )
+        assert worker.snapshot.zones[0].heat_level == 6
+        assert worker.snapshot.zones[0].power is False
+        assert simulator.writes == [{"20": "level_6"}]
+    finally:
+        worker.stop()
+        worker.join(3)
+
+
+@pytest.mark.parametrize("simulator", ["3.3", "3.4", "3.5"], indirect=True)
+def test_worker_mqtt_session_change_uses_fresh_device_connection(
+    simulator: Simulator, controller_config: ControllerConfig
+) -> None:
+    worker = worker_for(simulator, controller_config)
+    try:
+        wait_worker(lambda: worker.snapshot.online, worker)
+        assert simulator.mock.push(BASELINE.copy())
+        simulator.mock.dps["14"] = True
+        worker.set_session("new-session")
+        wait_worker(
+            lambda: (
+                worker.snapshot.online and worker.snapshot.session_id == "new-session"
+            ),
+            worker,
+        )
+        assert worker.snapshot.generation == 2
+        assert worker.snapshot.zones[0].power is True
+        assert simulator.mock.server.connections == 2
+        assert simulator.writes == []
+    finally:
+        worker.stop()
+        worker.join(3)
+
+
+@pytest.mark.parametrize("simulator", ["3.3"], indirect=True)
+def test_stalled_negotiation_does_not_block_other_worker(
+    simulator: Simulator, controller_config: ControllerConfig
+) -> None:
+    with MockDevice(local_key=KEY, version="3.5", go_dark_after=0) as stalled:
+        config = controller_config.model_copy(
+            update={"ip": "127.0.0.1", "protocol_version": "3.5"}
+        )
+        offline = ControllerWorker(
+            config,
+            lambda: TinyTuyaClient(
+                config, KEY, port=stalled.port, request_timeout=0.05
+            ),
+            logger=Log(),
+        )
+        offline.set_session("session")
+        offline.start()
+        healthy = worker_for(simulator, controller_config)
+        try:
+            wait_worker(lambda: healthy.snapshot.online, healthy)
+            assert (
+                healthy.submit(0, parse_command(b'{"power":true}'), "session") is None
+            )
+            assert collect_completion(healthy).result.outcome is Outcome.CONFIRMED
+            assert not offline.snapshot.online
+            offline.check()
+        finally:
+            offline.stop()
+            healthy.stop()
+            offline.join(3)
+            healthy.join(3)
+
+
+@pytest.mark.parametrize("version", ["3.4", "3.5"])
+def test_worker_shutdown_during_stalled_negotiation_with_default_timeouts(
+    version: str, controller_config: ControllerConfig
+) -> None:
+    with MockDevice(local_key=KEY, version=version, go_dark_after=0) as stalled:
+        config = controller_config.model_copy(
+            update={"ip": "127.0.0.1", "protocol_version": version}
+        )
+        worker = ControllerWorker(
+            config, lambda: TinyTuyaClient(config, KEY, port=stalled.port), logger=Log()
+        )
+        worker.start()
+        try:
+            wait_worker(lambda: stalled.server._fault_dark, worker)
+            assert (
+                worker.submit(0, parse_command(b'{"power":true}'), "session").outcome
+                is Outcome.REJECTED
+            )
+        finally:
+            worker.stop()
+            worker.join()
+        assert not worker.snapshot.online

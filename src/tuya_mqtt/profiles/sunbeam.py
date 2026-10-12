@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Literal
 from uuid import uuid4
 lazy from collections.abc import Mapping
 
@@ -45,6 +46,33 @@ DP_MAP = (
 )
 REQUIRED_DPS = tuple(dp for zone in DP_MAP for dp in zone)
 WRITABLE = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT, Field.AUTO_OFF_SECONDS)
+type WriteMode = Literal["disabled", "multi_dp", "level_before_power"]
+
+
+def write_steps(
+    command: Command, zone: int, mode: WriteMode
+) -> tuple[dict[str, Value | str], ...]:
+    if mode == "disabled":
+        raise BridgeError(ErrorCode.WRITE_DISABLED, "controller writes are disabled")
+    fields = [field for field, _value in command.values]
+    if (
+        not fields
+        or len(fields) != len(set(fields))
+        or any(
+            field not in WRITABLE or not _valid_value(field, value)
+            for field, value in command.values
+        )
+        or (Field.PREHEAT in fields and len(fields) != 1)
+    ):
+        raise BridgeError(ErrorCode.INVALID_COMMAND, "invalid command values")
+    encoded = encode_command(command, zone)
+    if mode == "multi_dp":
+        return (encoded,)
+    mapping = dict(zip(Field, DP_MAP[zone], strict=True))
+    order = (Field.HEAT_LEVEL, Field.AUTO_OFF_SECONDS, Field.POWER, Field.PREHEAT)
+    return tuple(
+        {mapping[field]: encoded[mapping[field]]} for field in order if field in fields
+    )
 
 
 @dataclass(frozen=True, slots=True)

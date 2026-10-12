@@ -13,6 +13,8 @@ class ErrorCode(StrEnum):
     CONNECTION_LOST = "connection_lost"
     CONFIRMATION_TIMEOUT = "confirmation_timeout"
     DEVICE_ERROR = "device_error"
+    STALE = "stale"
+    WRITE_DISABLED = "write_disabled"
 
 
 class BridgeError(Exception):
@@ -92,3 +94,48 @@ class CommandResult:
         if self.error_code is not None:
             result["error_code"] = self.error_code.value
         return result
+
+
+@dataclass(frozen=True, slots=True)
+class Request:
+    zone: int
+    command: Command
+    session_id: str
+    generation: int
+    received_at: float
+    start_by: float
+    deadline: float
+
+
+@dataclass(frozen=True, slots=True)
+class Completion:
+    request: Request
+    result: CommandResult
+    completed_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class ControllerSnapshot:
+    connection: ConnectionState = ConnectionState.DISCONNECTED
+    generation: int = 0
+    session_id: str | None = None
+    zones: tuple[ZoneState, ZoneState] = (ZoneState(), ZoneState())
+    previous_zones: tuple[ZoneState, ZoneState] = (ZoneState(), ZoneState())
+    invalid_fields: tuple[frozenset[Field], frozenset[Field]] = (
+        frozenset(),
+        frozenset(),
+    )
+    synchronized_at: float | None = None
+    last_full_status: float | None = None
+    last_traffic: float | None = None
+    progress_at: float = 0
+    refresh_revision: int = 0
+    reconnects: int = 0
+    operation_failures: int = 0
+    last_error: ErrorCode | None = None
+    active: Request | None = None
+    last_completion: Completion | None = None
+
+    @property
+    def online(self) -> bool:
+        return self.connection is ConnectionState.ONLINE

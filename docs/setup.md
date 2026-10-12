@@ -41,6 +41,12 @@ may end in one newline. TLS supports a custom CA and a client certificate/key
 pair; verification is mandatory. Bind HTTP explicitly to the intended management
 interface. Configuration changes require a restart.
 
+Writes default to disabled. The [controller worker guide](controller-worker.md)
+describes the explicit `write_mode` choices used during device qualification.
+Select `multi_dp` only after verifying combined writes, or `level_before_power`
+after verifying the documented individual-write order. Complete the hardware
+acceptance record before production use.
+
 Run `uv run --frozen tuya-mqtt validate-config --config /path/to/config.json`
 before connecting. Validation checks identities, names, ranges, profiles,
 protocol strings, duplicate JSON keys, and secret resolution without opening

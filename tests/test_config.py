@@ -65,6 +65,7 @@ def test_secret_files_and_no_mqtt_password(
         ("mqtt", "tls", {"key_file": "key"}),
         ("http", "bind", "invalid"),
         ("controller", "profile", "unrecognized"),
+        ("controller", "write_mode", "unrecognized"),
         ("controller", "protocol_version", 3.3),
         ("controller", "protocol_version", "3.6"),
         ("controller", "name", "bridge"),
