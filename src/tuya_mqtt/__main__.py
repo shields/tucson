@@ -1,11 +1,15 @@
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
 
+import structlog
+
 from .config import load_config
 from .domain import BridgeError
 from .tuya_client import TinyTuyaClient, sanitized_dps
+lazy from .runtime import run
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -13,12 +17,17 @@ def main(argv: list[str] | None = None) -> int:
     subcommands = parser.add_subparsers(dest="command", required=True)
     validate = subcommands.add_parser("validate-config")
     validate.add_argument("--config", type=Path, required=True)
+    daemon = subcommands.add_parser("run")
+    daemon.add_argument("--config", type=Path, required=True)
     inspect = subcommands.add_parser("inspect")
     inspect.add_argument("--config", type=Path, required=True)
     inspect.add_argument("--controller", required=True)
     args = parser.parse_args(argv)
     try:
         resolved = load_config(args.config)
+        if args.command == "run":
+            asyncio.run(run(resolved))
+            return 0
         if args.command == "inspect":
             for config, key in zip(
                 resolved.config.controllers, resolved.local_keys, strict=True
@@ -26,7 +35,11 @@ def main(argv: list[str] | None = None) -> int:
                 if config.name == args.controller:
                     client = TinyTuyaClient(config, key)
                     try:
-                        secrets = (key, resolved.mqtt_password or key)
+                        secrets = resolved.local_keys + (
+                            (resolved.mqtt_password,)
+                            if resolved.mqtt_password is not None
+                            else ()
+                        )
                         print(json.dumps(sanitized_dps(client.connect(), secrets)))
                     finally:
                         client.close()
@@ -35,6 +48,12 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     except BridgeError as error:
         print(f"{error.code}: {error}", file=sys.stderr)
+        return 1
+    # Exception text can contain credentials; fatal diagnostics include only its type.
+    except Exception as error:  # noqa: BLE001
+        structlog.get_logger().error(
+            "fatal", operation=args.command, error_type=type(error).__name__
+        )
         return 1
     print("configuration valid")
     return 0

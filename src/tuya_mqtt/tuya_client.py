@@ -8,7 +8,6 @@ from .domain import BridgeError, ErrorCode, Value
 from .profiles.sunbeam import REQUIRED_DPS
 lazy from .config import ControllerConfig
 
-DEVICE_PORT = 6668
 REQUEST_TIMEOUT = 2.0
 RECEIVE_SLICE = 0.25
 
@@ -63,7 +62,7 @@ class TinyTuyaClient:
         config: ControllerConfig,
         local_key: str,
         *,
-        port: int = DEVICE_PORT,
+        port: int | None = None,
         request_timeout: float = REQUEST_TIMEOUT,
         receive_slice: float = RECEIVE_SLICE,
         factory: Callable[..., RawDevice] | None = None,
@@ -71,7 +70,7 @@ class TinyTuyaClient:
     ) -> None:
         self._config = config
         self._key = local_key
-        self._port = port
+        self._port = config.port if port is None else port
         self._request_timeout = request_timeout
         self._receive_slice = receive_slice
         self._clock = clock

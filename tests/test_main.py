@@ -1,11 +1,13 @@
 import runpy
 import sys
+from dataclasses import replace
 lazy from pathlib import Path
 
 import pytest
 
 import tuya_mqtt.__main__ as cli
 from tuya_mqtt.__main__ import main
+from tuya_mqtt.config import load_config
 from tuya_mqtt.domain import BridgeError, ErrorCode
 
 
@@ -87,3 +89,49 @@ def test_inspection_unknown_controller(
         main(["inspect", "--config", str(config_path), "--controller", "unknown"]) == 1
     )
     assert capsys.readouterr().err == "unknown controller\n"
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_run_cli_returns_nonzero_on_unexpected_failure(
+    *,
+    failure: bool,
+    config_path: Path,
+    secret_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for key, value in secret_env.items():
+        monkeypatch.setenv(key, value)
+
+    async def run(_resolved: object) -> None:
+        if failure:
+            raise ValueError(secret_env["SUNBEAM_LOCAL_KEY"])
+
+    monkeypatch.setattr(cli, "run", run)
+    assert main(["run", "--config", str(config_path)]) == (1 if failure else 0)
+    output = capsys.readouterr().out
+    assert secret_env["SUNBEAM_LOCAL_KEY"] not in output
+    if failure:
+        assert "ValueError" in output
+        assert "fatal" in output
+
+
+def test_inspection_without_mqtt_password(
+    config_path: Path,
+    secret_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    resolved = replace(load_config(config_path, env=secret_env), mqtt_password=None)
+
+    class Inspector:
+        def connect(self) -> dict[str, object]:
+            return {"999": secret_env["SUNBEAM_LOCAL_KEY"]}
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "load_config", lambda _path: resolved)
+    monkeypatch.setattr(cli, "TinyTuyaClient", lambda *_args: Inspector())
+    assert main(["inspect", "--config", str(config_path), "--controller", "bed"]) == 0
+    assert capsys.readouterr().out == '{"999": "[redacted]"}\n'

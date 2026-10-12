@@ -33,7 +33,7 @@ the example device identity/address, verify the protocol version, and name the
 zones in A/B order. The example protocol is illustrative; the actual device’s
 protocol is still pending qualification. Each controller has one connection
 owner, even when it has two zones. Run only one bridge instance for that set of
-controllers.
+controllers. Each controller’s optional TCP `port` defaults to 6668.
 
 Use `{"env": "VARIABLE_NAME"}` or `{"file": "/mounted/secret"}` for each local
 key and MQTT password. A local key must be exactly 16 ASCII bytes. Secret files
@@ -59,3 +59,23 @@ data. It issues status queries only; it does not change heat, preheat, or
 timers. Compare the observed data with the
 [hardware acceptance record](hardware-acceptance.md) before enabling production
 writes.
+
+## Running the daemon
+
+Start with `uv run --frozen tuya-mqtt run --config /path/to/config.json`. The
+daemon owns one thread and connection per controller, publishes MQTT 5 reported
+state and results, and keeps observing devices during broker outages. It has no
+desired-state database or outbound command replay queue.
+
+Startup records the application version/revision, Python version, and TinyTuya
+version in JSON logs. Known local keys and MQTT passwords are redacted from
+strings; credential-bearing objects are refused before serialization. Unexpected
+application failures log their exception type and exit nonzero.
+
+SIGINT and SIGTERM stop command admission, publish controller and bridge offline
+while MQTT is connected, and join the controller owners before exiting. A
+violated worker shutdown bound is fatal. A crash triggers the bridge’s offline
+Last Will; consumers also require the live session heartbeat.
+
+HTTP diagnostics and container deployment remain in progress; the
+[implementation status](implementation-status.md) records those remaining gates.

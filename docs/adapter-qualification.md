@@ -84,9 +84,9 @@ Real-broker cases use Mosquitto 2.1.2 and independent clients. They verify that
 old retained commands are suppressed on subscription, live retained flags are
 preserved, fresh subscribers receive retained state, a denied QoS 1 publication
 fails and triggers the offline Last Will, and persisted broker data does not
-preserve a nonretained heartbeat. These qualify the adapter; daemon command
-routing and recovery still need process tests. An overflowing incoming queue
-also closes the connection and triggers its Last Will, while preventing queued
+preserve a nonretained heartbeat. These qualify the adapter; the process cases
+below qualify daemon routing and recovery. An overflowing incoming queue also
+closes the connection and triggers its Last Will, while preventing queued
 commands from escaping that failed session. An unexpected application failure
 also aborts the socket so the broker publishes the offline Last Will; a graceful
 disconnect cannot leave retained online state behind after a fatal task failure.
@@ -96,3 +96,28 @@ CI builds the broker from the official
 using `make test-broker`. Test targets prefer that binary over the system
 broker. Missing Mosquitto fails the tests. Compatibility with the deployed
 broker remains a qualification requirement.
+
+## Daemon process qualification
+
+The process suite starts the actual `tuya-mqtt run` entry point with allocated
+controller/broker ports and independent MQTT clients. The shared simulator
+fixture counts decoded writes and injects transport failures; only synthetic
+keys and identities are used.
+
+End-to-end command, retained-state, physical-style push, explicit-refresh, and
+graceful-shutdown cases cover protocols 3.3, 3.4, and 3.5. They exercise both
+zones, level-only selection, timer and preheat writes, and reported countdowns.
+Additional cases verify live retained-command rejection, abrupt-process Last
+Will, unavailable-controller admission, startup without a broker, and applied
+but unconfirmed writes followed by observation without replay.
+
+The broker-restart case pauses the daemon while Mosquitto persists/reloads its
+database. A fresh observer receives the old retained snapshot without a
+heartbeat. Resuming the daemon produces a new session and fresh controller
+snapshots; the stored heating command never executes.
+
+Silent 3.4/3.5 negotiation cases run beside a healthy controller. The healthy
+controller serves commands, the silent peer remains offline, and process
+shutdown completes with the production socket timeouts and worker join bound.
+These tests qualify application/library coordination, not actual Sunbeam
+firmware, physical zone orientation, or Home/Siri behavior.

@@ -13,7 +13,7 @@ from .json_codec import InvalidJSONError, decode
 LOCAL_KEY_BYTES = 16
 
 type Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
-type Text = Annotated[str, Field(min_length=1, max_length=256)]
+type Text = Annotated[str, Field(min_length=1, max_length=256, pattern=r"^[^\x00]+$")]
 type Port = Annotated[int, Field(ge=1, le=65535)]
 
 
@@ -89,6 +89,7 @@ class ControllerConfig(StrictModel):
     name: Name
     device_id: Text
     ip: Text
+    port: Port = 6668
     protocol_version: Literal["3.3", "3.4", "3.5"]
     local_key: SecretReference
     profile: Literal["sunbeam-dual"]

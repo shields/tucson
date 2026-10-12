@@ -6,7 +6,7 @@ import pytest
 
 from tuya_mqtt.config import ControllerConfig, load_config
 
-pytest_plugins = ["tests.broker"]
+pytest_plugins = ["tests.broker", "tests.tcp"]
 
 
 @pytest.fixture

@@ -50,3 +50,6 @@ ignore = [
 "tests/test_mqtt_client.py" = ["SLF001"]
 "tests/test_mqtt_broker.py" = ["SLF001"]
 "tests/test_bridge.py" = ["SLF001"]
+"tests/tcp.py" = ["SLF001"]
+"tests/process.py" = ["S603"]
+"tests/test_runtime.py" = ["SLF001"]
