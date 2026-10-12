@@ -1,7 +1,8 @@
 # Local Tuya MQTT bridge implementation plan
 
-Plan dated October 11, 2026. This describes proposed work; no bridge or Hoboken
-changes have been implemented. The
+Plan dated October 11, 2026. This records the architecture and acceptance
+requirements. The [implementation status](implementation-status.md) tracks
+verified work and remaining qualification. The
 [design and device research](tuya-mqtt-homekit.md) records the hardware findings
 and HomeKit decision. The [quality review](bridge-quality-review.md) explains
 the Rockville baseline and why the existing bridges were not selected.
