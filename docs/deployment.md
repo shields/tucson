@@ -123,12 +123,13 @@ their standard managers.
 
 GitHub must enforce all four check names above on the protected main branch and
 have native auto-merge enabled before automerge is activated. This repository is
-currently private, native auto-merge is disabled, and the rulesets API returns
-HTTP 403 requiring GitHub Pro or public visibility. That account/visibility
-prerequisite remains unresolved; the release workflow’s own dependency gate is
-independent of it. Enable Renovate installation and platform automerge only
-after required-check enforcement is available. No repository visibility or
-account settings were changed during implementation.
+private and native auto-merge is enabled. The active main ruleset currently
+requires `Lint and coverage` and `Workflow security`; both container checks
+still need to be added. The session's GitHub proxy rejects ruleset updates as an
+unsupported API operation, so that change requires external administration or
+proxy support. The release workflow's dependency gate already requires all four
+checks. Enable Renovate installation and platform automerge after the main
+ruleset enforces the same checks.
 
 Dependency updates run the full gate. TinyTuya updates also require review of
 retry/timeout behavior and a physical-controller smoke test before deployment,
