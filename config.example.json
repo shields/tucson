@@ -1,0 +1,21 @@
+{
+  "mqtt": {
+    "host": "mqtt.lan",
+    "client_id": "tucson-bedroom",
+    "topic_prefix": "tuya",
+    "username": "tucson",
+    "password": { "env": "MQTT_PASSWORD" }
+  },
+  "http": { "bind": "127.0.0.1", "port": 8080 },
+  "controllers": [
+    {
+      "name": "bed",
+      "device_id": "replace-with-device-id",
+      "ip": "192.0.2.10",
+      "protocol_version": "3.3",
+      "local_key": { "env": "SUNBEAM_LOCAL_KEY" },
+      "profile": "sunbeam-dual",
+      "zones": ["side_a", "side_b"]
+    }
+  ]
+}

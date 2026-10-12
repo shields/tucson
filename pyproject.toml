@@ -1,0 +1,47 @@
+[project]
+name = "tuya-mqtt"
+version = "0.0.0"
+description = "Local Sunbeam mattress-pad MQTT bridge"
+readme = "README.md"
+requires-python = ">=3.15"
+dependencies = [
+  "tinytuya==1.20.0",
+  "aiomqtt>=2.5.1",
+  "aiohttp>=3.14.5",
+  "prometheus-client>=0.26.0",
+  "structlog>=26.1.0",
+  "pydantic>=2.14.1",
+]
+
+[project.scripts]
+tuya-mqtt = "tuya_mqtt.__main__:main"
+
+[build-system]
+requires = ["uv-build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "tuya_mqtt"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["integration: real TCP library and broker qualification"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/tuya_mqtt"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+
+[dependency-groups]
+dev = [
+  "ruff>=0.17.0",
+  "ty>=0.0.86",
+  "pytest>=9.1.1",
+  "pytest-cov>=7.1.0",
+  "pytest-asyncio>=1.4.0",
+  "zizmor>=1.30.1",
+]
