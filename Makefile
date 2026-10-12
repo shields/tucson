@@ -1,5 +1,5 @@
 PRETTIER = bunx --no-install prettier --no-error-on-unmatched-pattern
-DOCS = "**/*.md" "**/*.json" "**/*.json5" "**/*.yaml" "**/*.yml" "**/*.toml"
+DOCS = "**/*.md" "**/*.json" "**/*.json5" "**/*.yaml" "**/*.yml" "**/*.toml" "**/*.html"
 TEST_BROKER_REVISION = 99fa50f30e325609394c324c8ff71cfbbe95d8ab
 TEST_BROKER_SOURCE = .build/mosquitto-source
 TEST_BROKER_BUILD = .build/mosquitto-build

@@ -22,5 +22,7 @@ starts from the published dual-zone mapping; physical behavior and write
 ordering must be verified on the deployed controller.
 
 `tuya-mqtt run --config /path/to/config.json` runs the MQTT daemon. The
-[implementation status](docs/implementation-status.md) tracks HTTP diagnostics,
-containers, Hoboken, and physical acceptance work still in progress.
+[setup guide](docs/setup.md#http-diagnostics) describes the live status,
+health/readiness, and Prometheus routes. The
+[implementation status](docs/implementation-status.md) tracks containers,
+Hoboken, and physical acceptance work still in progress.

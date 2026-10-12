@@ -21,7 +21,7 @@ from .domain import (
     ZoneState,
 )
 from .json_codec import InvalidJSONError, decode
-from .mqtt_client import MQTTFailureError
+from .mqtt_client import MQTTFailureError, Operation
 from .profiles.sunbeam import (
     MAX_PAYLOAD_BYTES,
     MAX_REQUEST_ID,
@@ -36,6 +36,15 @@ lazy from .mqtt_client import Message, MQTTConnection
 HEARTBEAT_INTERVAL = 15.0
 MONITOR_INTERVAL = 0.05
 MAX_BACKOFF = 60.0
+LIVENESS_TIMEOUT = 2.0
+
+
+def publication_failures(error: BaseException) -> int:
+    if isinstance(error, BaseExceptionGroup):
+        return sum(publication_failures(item) for item in error.exceptions)
+    return int(
+        isinstance(error, MQTTFailureError) and error.operation is Operation.PUBLISH
+    )
 
 
 class Worker(Protocol):
@@ -118,6 +127,7 @@ class Bridge:
         self.heartbeat_at: float | None = None
         self.mqtt_reconnects = 0
         self.mqtt_failures = 0
+        self.mqtt_publish_failures = 0
         self.last_error: ErrorCode | None = None
         self.outcomes: dict[tuple[int, int, Outcome, ErrorCode | None], int] = {}
         self.latency_totals: dict[tuple[int, int], tuple[int, float]] = {}
@@ -129,6 +139,8 @@ class Bridge:
         self._log = logger or cast("ControllerLog", structlog.get_logger())
         self._admitting = False
         self._synchronized = False
+        self._broker_task: asyncio.Task[None] | None = None
+        self._monitor_task: asyncio.Task[None] | None = None
         self._ledgers: dict[tuple[int, int], RequestLedger] = {}
         self._routes = {
             f"{self.config.mqtt.topic_prefix}/{controller.name}/{name}/{action}": (
@@ -150,6 +162,22 @@ class Bridge:
     def zone_topic(self, index: int, zone: int) -> str:
         config = self.config.controllers[index]
         return f"{self.config.mqtt.topic_prefix}/{config.name}/{config.zones[zone]}"
+
+    @property
+    def now(self) -> float:
+        return self._clock()
+
+    @property
+    def healthy(self) -> bool:
+        return (
+            self.running
+            and not self.stop_requested.is_set()
+            and self._broker_task is not None
+            and not self._broker_task.done()
+            and self._monitor_task is not None
+            and not self._monitor_task.done()
+            and self.now - self.progress_at < LIVENESS_TIMEOUT
+        )
 
     def controller_topic(self, index: int) -> str:
         return (
@@ -283,7 +311,7 @@ class Bridge:
         async for message in client.messages:
             await self.handle(client, message)
         message = "MQTT command stream ended"
-        raise MQTTFailureError(message)
+        raise MQTTFailureError(message, Operation.RECEIVE)
 
     async def _heartbeat(self, client: MQTTConnection) -> None:
         while True:
@@ -418,13 +446,17 @@ class Bridge:
         except* IntervalFinishedError:
             pass
 
+    async def wait_interval(self, delay: float) -> None:
+        await self._interval(delay)
+
     async def _broker_loop(self) -> None:
         backoff = 1.0
         while not self.stop_requested.is_set():
             try:
                 await self._session()
-            except* MQTTFailureError:
+            except* MQTTFailureError as failures:
                 self.mqtt_failures += 1
+                self.mqtt_publish_failures += publication_failures(failures)
                 self.last_error = ErrorCode.MQTT_ERROR
                 self._log.error(
                     "mqtt_disconnected",
@@ -455,8 +487,8 @@ class Bridge:
                 worker.start()
             self.running = True
             async with asyncio.TaskGroup() as group:
-                group.create_task(self._broker_loop())
-                group.create_task(self._monitor())
+                self._broker_task = group.create_task(self._broker_loop())
+                self._monitor_task = group.create_task(self._monitor())
         finally:
             self.running = False
             self.connected = False

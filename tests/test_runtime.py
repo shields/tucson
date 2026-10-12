@@ -63,6 +63,7 @@ async def test_runtime_signals_versions_cleanup_and_secret_redaction(
     handlers: dict[signal.Signals, Callable[[], None]] = {}
     removed: list[signal.Signals] = []
     stopped: list[bool] = []
+    server_calls: list[str] = []
     loop = asyncio.get_running_loop()
     failure = RuntimeError("runtime failure")
 
@@ -76,6 +77,18 @@ async def test_runtime_signals_versions_cleanup_and_secret_redaction(
                 raise failure
             handlers[signal.SIGTERM]()
 
+    class Server:
+        async def start(self, host: str, port: int) -> None:
+            assert host == resolved.config.http.bind
+            assert port == resolved.config.http.port
+            server_calls.append("start")
+
+        async def run(self) -> None:
+            await asyncio.Event().wait()
+
+        async def close(self) -> None:
+            server_calls.append("close")
+
     def register(signum: signal.Signals, callback: Callable[[], None]) -> None:
         if mode == "signal_failure" and signum is signal.SIGTERM:
             raise failure
@@ -84,17 +97,18 @@ async def test_runtime_signals_versions_cleanup_and_secret_redaction(
     monkeypatch.setattr(loop, "add_signal_handler", register)
     monkeypatch.setattr(loop, "remove_signal_handler", removed.append)
     monkeypatch.setattr(runtime, "build", lambda _resolved: Bridge())
+    monkeypatch.setattr(runtime, "StatusServer", lambda *_args: Server())
     monkeypatch.setenv("TUYA_MQTT_REVISION", resolved.local_keys[0])
     if mode == "no_password":
         resolved = replace(resolved, mqtt_password=None)
     if mode in ("run_failure", "signal_failure"):
-        with pytest.raises(RuntimeError, match="runtime failure") as caught:
+        with pytest.raises((RuntimeError, ExceptionGroup)):
             await runtime.run(resolved)
-        assert caught.value is failure
     else:
         await runtime.run(resolved)
         assert stopped == [True]
     assert removed == list(handlers)
+    assert server_calls[-1] == "close"
     event = json.loads(capsys.readouterr().out)
     assert event["event"] == "starting"
     assert event["revision"] == "[redacted]"

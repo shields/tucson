@@ -245,15 +245,12 @@ class ControllerCore:
 
     def _reset_baseline(self, session_id: str | None, *, new_connection: bool) -> None:
         self._baseline_started = self._clock()
-        previous = (
-            self.view.zones
-            if any(
-                getattr(zone, field.value) is not None
-                for zone in self.view.zones
-                for field in Field
-            )
-            else self.view.previous_zones
+        current_known = any(
+            getattr(zone, field.value) is not None
+            for zone in self.view.zones
+            for field in Field
         )
+        previous = self.view.zones if current_known else self.view.previous_zones
         connection = (
             ConnectionState.CONNECTING
             if new_connection
@@ -268,6 +265,11 @@ class ControllerCore:
             + int(new_connection and self.view.generation > 0),
             session_id=session_id,
             previous_zones=previous,
+            previous_full_status_at=(
+                self.view.last_full_status
+                if current_known
+                else self.view.previous_full_status_at
+            ),
             zones=(ZoneState(), ZoneState()),
             invalid_fields=(frozenset(), frozenset()),
             synchronized_at=None,

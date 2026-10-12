@@ -48,3 +48,7 @@ def configure(secrets: tuple[str, ...], *, stream: TextIO | None = None) -> None
         logger_factory=structlog.WriteLoggerFactory(file=stream or sys.stdout),
         cache_logger_on_first_use=True,
     )
+
+
+def sanitize(value: object, secrets: tuple[str, ...]) -> object:
+    return _primitive(value, tuple(sorted(set(secrets), key=len, reverse=True)))

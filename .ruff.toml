@@ -53,3 +53,4 @@ ignore = [
 "tests/tcp.py" = ["SLF001"]
 "tests/process.py" = ["S603"]
 "tests/test_runtime.py" = ["SLF001"]
+"tests/test_status_page.py" = ["SLF001"]

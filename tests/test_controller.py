@@ -182,6 +182,7 @@ def test_reconnect_never_merges_previous_baseline(harness: Harness) -> None:
     assert harness.core.view.generation == 2
     assert harness.core.view.reconnects == 1
     assert harness.core.view.previous_zones[0].heat_level == 4
+    assert harness.core.view.previous_full_status_at is not None
     assert harness.core.view.zones[0].heat_level is None
     assert not harness.core.view.online
     assert harness.core.view.last_full_status is None

@@ -123,6 +123,7 @@ class ControllerSnapshot:
     session_id: str | None = None
     zones: tuple[ZoneState, ZoneState] = (ZoneState(), ZoneState())
     previous_zones: tuple[ZoneState, ZoneState] = (ZoneState(), ZoneState())
+    previous_full_status_at: float | None = None
     invalid_fields: tuple[frozenset[Field], frozenset[Field]] = (
         frozenset(),
         frozenset(),

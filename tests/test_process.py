@@ -8,6 +8,7 @@ lazy from typing import Any
 
 import aiomqtt
 import pytest
+from aiohttp import ClientSession
 from tuyamock import MockDevice
 
 from .broker import Broker
@@ -31,6 +32,9 @@ def configure_process(
         "protocol_version": simulator.mock.config.version,
         "write_mode": "multi_dp",
     }
+    with socket.socket() as http_port:
+        http_port.bind(("127.0.0.1", 0))
+        config_data["http"] = {"bind": "127.0.0.1", "port": http_port.getsockname()[1]}
     config_path.write_text(json.dumps(config_data))
     return Daemon(config_path, secret_env, config_path.parent / "daemon.log")
 
@@ -49,6 +53,23 @@ async def ready(observed: Observed) -> None:
             == data.payload("tuya/bridge/heartbeat")["session_id"]
         )
     )
+
+
+async def http_snapshot(config_data: dict[str, Any]) -> dict[str, Any]:
+    config = config_data["http"]
+    base = f"http://{config['bind']}:{config['port']}"
+    async with ClientSession() as client:
+        async with client.get(f"{base}/healthz") as response:
+            health = response.status, await response.json()
+        async with client.get(f"{base}/readyz") as response:
+            readiness = response.status, await response.json()
+        async with client.get(f"{base}/metrics") as response:
+            metrics = await response.text()
+        async with client.get(f"{base}/events") as response:
+            line = await asyncio.wait_for(response.content.readline(), 3)
+            assert line.startswith(b"data: ")
+            data = json.loads(line[6:])
+    return {"health": health, "readiness": readiness, "metrics": metrics, "data": data}
 
 
 @pytest.mark.parametrize("simulator", ["3.3", "3.4", "3.5"], indirect=True)
@@ -124,6 +145,24 @@ async def test_process_commands_pushes_refresh_retained_state_and_shutdown(
                 )
                 assert simulator.writes[-1] == expected
             assert simulator.mock.dps["14"] is True
+            diagnostic = await http_snapshot(config_data)
+            assert diagnostic["health"] == (200, {"healthy": True})
+            assert diagnostic["readiness"] == (200, {"ready": True, "reasons": []})
+            assert diagnostic["data"]["session_id"] == session_id
+            assert (
+                diagnostic["data"]["controllers"][0]["zones"][0]["reported"][
+                    "heat_level"
+                ]
+                == 3
+            )
+            assert (
+                'tuya_mqtt_command_outcomes_total{controller="bed",'
+                'error_code="none",outcome="confirmed",zone="side_a"} 3.0'
+                in diagnostic["metrics"]
+            )
+            assert all(
+                secret not in json.dumps(diagnostic) for secret in secret_env.values()
+            )
             assert simulator.mock.push({"14": False, "24": True, "102": 90})
             await observed.wait(
                 lambda data: (
@@ -276,6 +315,10 @@ async def test_process_starts_without_broker_and_recovers(
         daemon.start()
         try:
             await daemon.wait_event("mqtt_disconnected")
+            diagnostic = await http_snapshot(config_data)
+            assert diagnostic["health"] == (200, {"healthy": True})
+            assert diagnostic["readiness"][0] == 503
+            assert "mqtt_disconnected" in diagnostic["readiness"][1]["reasons"]
         except BaseException:
             await daemon.stop()
             raise
@@ -458,6 +501,13 @@ async def test_healthy_controller_serves_with_stalled_peer_and_shutdown_is_bound
                 daemon.start()
                 await ready(observed)
                 await daemon.wait_event("controller_disconnected")
+                diagnostic = await http_snapshot(config_data)
+                assert diagnostic["health"] == (200, {"healthy": True})
+                assert diagnostic["readiness"][0] == 503
+                assert (
+                    "controller_unavailable:stalled"
+                    in diagnostic["readiness"][1]["reasons"]
+                )
                 assert (
                     observed.latest["tuya/stalled/availability"].payload == b"offline"
                 )

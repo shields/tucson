@@ -1,6 +1,7 @@
 import asyncio
 import ssl
 from dataclasses import dataclass
+from enum import StrEnum
 from time import monotonic
 from typing import Protocol, Self
 lazy from collections.abc import AsyncIterator
@@ -22,8 +23,18 @@ INCOMING_LIMIT = 256
 MAX_PACKET_BYTES = 65536
 
 
+class Operation(StrEnum):
+    CONNECT = "connect"
+    SUBSCRIBE = "subscribe"
+    PUBLISH = "publish"
+    RECEIVE = "receive"
+    DISCONNECT = "disconnect"
+
+
 class MQTTFailureError(ConnectionError):
-    pass
+    def __init__(self, message: str, operation: Operation = Operation.CONNECT) -> None:
+        self.operation = operation
+        super().__init__(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,9 +231,9 @@ class Client:
             message = "MQTT disconnect failed"
             if exc is not None:
                 raise BaseExceptionGroup(
-                    message, [exc, MQTTFailureError(message)]
+                    message, [exc, MQTTFailureError(message, Operation.DISCONNECT)]
                 ) from None
-            raise MQTTFailureError(message) from None
+            raise MQTTFailureError(message, Operation.DISCONNECT) from None
         finally:
             self._client.close_transport()
 
@@ -237,10 +248,10 @@ class Client:
             )
             if len(reasons) != 1 or reasons[0] != 0:
                 message = "MQTT subscription rejected"
-                raise MQTTFailureError(message)
+                raise MQTTFailureError(message, Operation.SUBSCRIBE)
         except aiomqtt.MqttError:
             message = "MQTT subscription failed"
-            raise MQTTFailureError(message) from None
+            raise MQTTFailureError(message, Operation.SUBSCRIBE) from None
 
     async def publish(
         self, topic: str, payload: str, *, qos: int, retain: bool
@@ -249,7 +260,7 @@ class Client:
             await self._client.publish_checked(topic, payload, qos=qos, retain=retain)
         except aiomqtt.MqttError:
             message = "MQTT publication failed"
-            raise MQTTFailureError(message) from None
+            raise MQTTFailureError(message, Operation.PUBLISH) from None
 
     @property
     def messages(self) -> AsyncIterator[Message]:
@@ -269,4 +280,4 @@ class Client:
                 )
         except aiomqtt.MqttError:
             message = "MQTT message stream failed"
-            raise MQTTFailureError(message) from None
+            raise MQTTFailureError(message, Operation.RECEIVE) from None

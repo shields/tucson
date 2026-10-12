@@ -77,5 +77,28 @@ while MQTT is connected, and join the controller owners before exiting. A
 violated worker shutdown bound is fatal. A crash triggers the bridge’s offline
 Last Will; consumers also require the live session heartbeat.
 
-HTTP diagnostics and container deployment remain in progress; the
-[implementation status](implementation-status.md) records those remaining gates.
+## HTTP diagnostics
+
+The management server binds to the configured `http.bind` and `http.port`. Its
+routes are read-only:
+
+| Route      | Behavior                                                                                                                                                                            |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/healthz` | HTTP 200 while required coordination loops make progress; otherwise HTTP 503. Dependency outages alone do not make the process unhealthy.                                           |
+| `/readyz`  | HTTP 200 when MQTT and all configured controller baselines are usable; otherwise HTTP 503 with reasons. A healthy controller can still serve commands while another is unavailable. |
+| `/metrics` | Prometheus connectivity, freshness, reconnect, failure, command outcome/latency, queue-depth, and progress measurements.                                                            |
+| `/`        | Live controller/zone state, previous snapshots, freshness ages, pending requests, errors, and software versions.                                                                    |
+| `/events`  | JSON status snapshots over Server-Sent Events.                                                                                                                                      |
+
+The status stream admits at most 16 clients. Each keeps only its latest queued
+snapshot; superseded diagnostics are replaced. Writes, including stream
+termination, are bounded to two seconds. Idle connections receive a comment
+heartbeat every 15 seconds so dropped readers are reaped. These limits do not
+change command admission or reported countdowns.
+
+Known secrets are redacted from status strings and labels. HTTP access logs are
+disabled so request URLs cannot expose credentials. Unexpected handler or
+publisher failures terminate the daemon with a nonzero exit.
+
+Container deployment, Hoboken, and hardware acceptance remain in progress; the
+[implementation status](implementation-status.md) records those gates.

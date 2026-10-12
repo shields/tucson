@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Tucson status</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 2rem auto;
+        padding: 0 1rem;
+        max-width: 70rem;
+      }
+      header,
+      .summary {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        align-items: baseline;
+      }
+      header {
+        justify-content: space-between;
+      }
+      a {
+        color: inherit;
+      }
+      .muted {
+        opacity: 0.7;
+      }
+      .badge {
+        border: 1px solid;
+        border-radius: 0.4rem;
+        padding: 0.15rem 0.6rem;
+      }
+      .ok {
+        color: #278245;
+      }
+      .bad {
+        color: #c34d45;
+      }
+      section {
+        border: 1px solid #8886;
+        border-radius: 0.6rem;
+        padding: 1rem;
+        margin: 1rem 0;
+      }
+      h1,
+      h2,
+      h3 {
+        margin: 0.4rem 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      th,
+      td {
+        padding: 0.4rem;
+        text-align: left;
+        border-bottom: 1px solid #8884;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: minmax(10rem, 1fr) 3fr;
+        gap: 0.3rem;
+      }
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .zones {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        gap: 1rem;
+      }
+      @media (max-width: 40rem) {
+        dl {
+          grid-template-columns: 1fr;
+        }
+        dd {
+          margin-bottom: 0.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Tucson status</h1>
+      <nav>
+        <a href="/metrics">Metrics</a> · <a href="/healthz">Liveness</a> ·
+        <a href="/readyz">Readiness</a>
+      </nav>
+    </header>
+    <p id="stream" class="muted" role="status">
+      Connecting to the status stream…
+    </p>
+    <div id="content"></div>
+    <script>
+      const content = document.getElementById("content");
+      const stream = document.getElementById("stream");
+      const fields = {
+        power: "Power",
+        heat_level: "Heat level",
+        preheat: "Preheat",
+        auto_off_seconds: "Auto-off setting",
+        remaining_seconds: "Reported time remaining",
+        preheat_remaining_seconds: "Reported preheat time remaining",
+      };
+      function node(tag, text, className) {
+        const element = document.createElement(tag);
+        if (text !== undefined) element.textContent = text;
+        if (className) element.className = className;
+        return element;
+      }
+      function value(raw) {
+        if (raw === null) return "Unknown";
+        if (typeof raw === "boolean") return raw ? "On" : "Off";
+        return String(raw);
+      }
+      function seconds(raw) {
+        return raw === null ? "Unknown" : `${Math.max(0, raw).toFixed(1)} s`;
+      }
+      function details(items) {
+        const list = node("dl");
+        for (const [label, text] of items)
+          list.append(node("dt", label), node("dd", text));
+        return list;
+      }
+      function table(state) {
+        const result = node("table");
+        for (const [key, label] of Object.entries(fields)) {
+          const row = node("tr");
+          row.append(
+            node("th", label),
+            node(
+              "td",
+              value(state[key]) +
+                (key.endsWith("seconds") && state[key] !== null ? " s" : ""),
+            ),
+          );
+          result.append(row);
+        }
+        return result;
+      }
+      function render(data) {
+        const summary = node("div", undefined, "summary");
+        summary.append(
+          node(
+            "span",
+            data.healthy ? "Process healthy" : "Process unavailable",
+            `badge ${data.healthy ? "ok" : "bad"}`,
+          ),
+          node(
+            "span",
+            data.ready ? "Ready" : "Not ready",
+            `badge ${data.ready ? "ok" : "bad"}`,
+          ),
+          node(
+            "span",
+            data.mqtt_connected ? "MQTT connected" : "MQTT disconnected",
+            `badge ${data.mqtt_connected ? "ok" : "bad"}`,
+          ),
+        );
+        const nodes = [
+          summary,
+          details([
+            ["Observed at", data.observed_at],
+            ["MQTT session", value(data.session_id)],
+            ["Heartbeat age", seconds(data.heartbeat_age_seconds)],
+            ["Last bridge error", data.last_error ?? "None"],
+            ["Readiness reasons", data.reasons.join(", ") || "None"],
+            [
+              "Versions",
+              Object.entries(data.versions)
+                .map(([name, version]) => `${name}: ${version}`)
+                .join(" · "),
+            ],
+          ]),
+        ];
+        for (const controller of data.controllers) {
+          const section = node("section");
+          section.append(
+            node("h2", controller.name),
+            details([
+              [
+                "Connection",
+                `${controller.connection} · ${controller.available ? "Available" : "Unavailable"}`,
+              ],
+              [
+                "Full status age",
+                seconds(controller.last_full_status_age_seconds),
+              ],
+              ["Worker progress age", seconds(controller.progress_age_seconds)],
+              ["Queued commands", controller.queue_depth],
+              ["Last error", controller.last_error ?? "None"],
+              [
+                "Pending request",
+                controller.pending
+                  ? `${controller.pending.zone}: ${controller.pending.request_id} (${seconds(controller.pending.deadline_seconds)} until deadline)`
+                  : "None",
+              ],
+              [
+                "Last result",
+                controller.last_result
+                  ? `${controller.last_result.zone}: ${controller.last_result.outcome} (${controller.last_result.error_code ?? "No error"})`
+                  : "None",
+              ],
+            ]),
+          );
+          const zones = node("div", undefined, "zones");
+          for (const zone of controller.zones) {
+            const panel = node("div");
+            panel.append(node("h3", zone.name), table(zone.reported));
+            if (zone.invalid_fields.length)
+              panel.append(
+                node(
+                  "p",
+                  `Compatibility errors: ${zone.invalid_fields.join(", ")}`,
+                  "bad",
+                ),
+              );
+            const previous = node("details");
+            previous.append(
+              node(
+                "summary",
+                `Previous snapshot · full status age ${seconds(controller.previous_full_status_age_seconds)}`,
+              ),
+              table(zone.previous),
+            );
+            panel.append(previous);
+            zones.append(panel);
+          }
+          section.append(zones);
+          nodes.push(section);
+        }
+        content.replaceChildren(...nodes);
+      }
+      const events = new EventSource("/events");
+      events.onmessage = (event) => {
+        render(JSON.parse(event.data));
+        stream.textContent =
+          "Status stream connected. Countdown values change only when reported by the controller.";
+      };
+      events.onerror = () => {
+        stream.textContent =
+          "Status stream unavailable. Displayed values may be stale; reconnecting…";
+      };
+    </script>
+  </body>
+</html>
