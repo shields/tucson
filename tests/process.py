@@ -100,6 +100,22 @@ class Observed:
         return sum(str(message.topic) == topic for message in self.history)
 
 
+async def ready(observed: Observed) -> None:
+    await observed.wait(
+        lambda data: (
+            "tuya/bridge/heartbeat" in data.latest
+            and "tuya/bed/availability" in data.latest
+            and "tuya/bed/side_a" in data.latest
+            and "tuya/bed/side_b" in data.latest
+            and data.latest["tuya/bed/availability"].payload == b"online"
+            and data.payload("tuya/bed/side_a")["session_id"]
+            == data.payload("tuya/bridge/heartbeat")["session_id"]
+            and data.payload("tuya/bed/side_b")["session_id"]
+            == data.payload("tuya/bridge/heartbeat")["session_id"]
+        )
+    )
+
+
 async def finish(daemon: Daemon, consumer: asyncio.Task[None]) -> int | None:
     try:
         return await daemon.stop()

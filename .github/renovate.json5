@@ -1,0 +1,72 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:best-practices", ":semanticCommitsDisabled"],
+  platformAutomerge: true,
+  ignoreTests: false,
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^Dockerfile$/"],
+      matchStrings: [
+        "RUN uv python install (?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)",
+      ],
+      depNameTemplate: "python",
+      datasourceTemplate: "python-version",
+      versioningTemplate: "pep440",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      matchStrings: [
+        'uses: astral-sh/setup-uv@[^\\r\\n]+\\s+with:\\s+version: "(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"',
+      ],
+      depNameTemplate: "astral-sh/uv",
+      datasourceTemplate: "github-releases",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      matchStrings: [
+        "image=moby/buildkit:(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)@(?<currentDigest>sha256:[a-f0-9]{64})",
+      ],
+      depNameTemplate: "moby/buildkit",
+      datasourceTemplate: "docker",
+      versioningTemplate: "docker",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      matchStrings: [
+        'bun-version: "(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"',
+      ],
+      depNameTemplate: "oven-sh/bun",
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^bun-v(?<version>.*)$",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      matchStrings: [
+        'uses: zizmorcore/zizmor-action@[^\\r\\n]+\\s+with:[\\s\\S]*?version: "(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"',
+      ],
+      depNameTemplate: "zizmorcore/zizmor",
+      datasourceTemplate: "github-releases",
+    },
+  ],
+  packageRules: [
+    {
+      description: "Automerge non-major updates behind required checks",
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      automerge: true,
+    },
+    {
+      description: "Automerge development tooling, including Python groups",
+      matchDepTypes: [
+        "devDependencies",
+        "dependency-groups",
+        "build-system.requires",
+      ],
+      automerge: true,
+    },
+  ],
+}

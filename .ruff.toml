@@ -43,6 +43,8 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004"]
+"image/**" = ["S101", "PLR2004"]
+"image/test_container.py" = ["S603"]
 "src/tuya_mqtt/tuya_client.py" = ["N802"]
 "tests/test_tuya_client.py" = ["N802"]
 "tests/test_tuya_tcp.py" = ["SLF001"]
@@ -54,3 +56,5 @@ ignore = [
 "tests/process.py" = ["S603"]
 "tests/test_runtime.py" = ["SLF001"]
 "tests/test_status_page.py" = ["SLF001"]
+"tests/test_release.py" = ["S603"]
+"tests/test_workflow.py" = ["S603"]

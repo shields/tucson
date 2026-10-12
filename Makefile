@@ -4,8 +4,17 @@ TEST_BROKER_REVISION = 99fa50f30e325609394c324c8ff71cfbbe95d8ab
 TEST_BROKER_SOURCE = .build/mosquitto-source
 TEST_BROKER_BUILD = .build/mosquitto-build
 TEST_PATH = $(abspath $(TEST_BROKER_BUILD)/src):$(PATH)
+IMAGE ?= tuya-mqtt:test
+IMAGE_PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+REVISION ?= $(shell git rev-parse HEAD)
+SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD)
+CRANE_VERSION = 0.22.1
+CRANE_SHA256_arm64 = 898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110
+CRANE_SHA256_x86_64 = 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+CRANE_ARCH = $(shell uname -m | sed 's/aarch64/arm64/')
+export REVISION
 
-.PHONY: setup build run fmt lint test integration test-broker test-broker-deps
+.PHONY: setup build run fmt lint test integration test-broker test-broker-deps image test-image image-export release-tools release
 
 setup:
 	uv sync --frozen
@@ -35,6 +44,46 @@ test:
 
 integration:
 	PATH="$(TEST_PATH)" uv run --frozen pytest -m integration
+
+image:
+	docker buildx build --network host --platform "$(IMAGE_PLATFORM)" --provenance=false --build-arg REVISION="$(REVISION)" --build-arg SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" --output type=docker,rewrite-timestamp=true --tag "$(IMAGE)" .
+
+test-image:
+	PATH="$(TEST_PATH)" TUCSON_IMAGE="$(IMAGE)" TUCSON_REVISION="$(REVISION)" TUCSON_PLATFORM="$(IMAGE_PLATFORM)" uv run --frozen python -m pytest -p tests.broker -p tests.tcp image
+
+image-export:
+	mkdir -p .build/images
+	docker image save --output ".build/images/$(subst linux/,,$(IMAGE_PLATFORM)).tar" "$(IMAGE)"
+
+release-tools:
+	mkdir -p .build/tools
+	curl --fail --silent --show-error --location "https://github.com/google/go-containerregistry/releases/download/v$(CRANE_VERSION)/go-containerregistry_Linux_$(CRANE_ARCH).tar.gz" --output .build/tools/crane.tar.gz
+	printf '%s  %s\n' '$(CRANE_SHA256_$(CRANE_ARCH))' '.build/tools/crane.tar.gz' | sha256sum --check
+	tar -xzf .build/tools/crane.tar.gz -C .build/tools crane
+
+release:
+	@set -eu; \
+	printf '%s\n' "$$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$'; \
+	printf '%s\n' "$$REVISION" | grep -Eq '^[0-9a-f]{40}$$'; \
+	test -n "$$IMAGE_REPOSITORY"; test -n "$$RUN_SUFFIX"; \
+	for arch in amd64 arm64; do test -f ".build/images/$$arch.tar"; done; \
+	mkdir -p .build/release; \
+	staging="$$IMAGE_REPOSITORY:build-$$RUN_SUFFIX"; \
+	for arch in amd64 arm64; do \
+		crane push ".build/images/$$arch.tar" "$$staging-$$arch"; \
+		crane config "$$staging-$$arch" > ".build/release/$$arch.json"; \
+		jq --exit-status --arg revision "$$REVISION" --arg arch "$$arch" '.architecture == $$arch and .os == "linux" and .config.Labels["org.opencontainers.image.revision"] == $$revision' ".build/release/$$arch.json"; \
+	done; \
+	crane index append --manifest "$$staging-amd64" --manifest "$$staging-arm64" --tag "$$staging"; \
+	digest=$$(crane digest "$$staging"); \
+	crane ls "$$IMAGE_REPOSITORY" > .build/release/tags; \
+	for tag in "sha-$$REVISION" "$$RELEASE_TAG"; do \
+		if grep -Fxq -- "$$tag" .build/release/tags; then \
+			existing=$$(crane digest "$$IMAGE_REPOSITORY:$$tag"); \
+			test "$$existing" = "$$digest" || { printf 'Refusing to replace immutable tag %s\n' "$$tag" >&2; exit 1; }; \
+		fi; \
+	done; \
+	for tag in "sha-$$REVISION" "$$RELEASE_TAG"; do crane tag "$$IMAGE_REPOSITORY@$$digest" "$$tag"; done
 
 test-broker-deps:
 	sudo apt-get update

@@ -12,7 +12,7 @@ from aiohttp import ClientSession
 from tuyamock import MockDevice
 
 from .broker import Broker
-from .process import Daemon, Observed, finish
+from .process import Daemon, Observed, finish, ready
 lazy from .tcp import Simulator
 
 pytestmark = pytest.mark.integration
@@ -37,22 +37,6 @@ def configure_process(
         config_data["http"] = {"bind": "127.0.0.1", "port": http_port.getsockname()[1]}
     config_path.write_text(json.dumps(config_data))
     return Daemon(config_path, secret_env, config_path.parent / "daemon.log")
-
-
-async def ready(observed: Observed) -> None:
-    await observed.wait(
-        lambda data: (
-            "tuya/bridge/heartbeat" in data.latest
-            and "tuya/bed/availability" in data.latest
-            and "tuya/bed/side_a" in data.latest
-            and "tuya/bed/side_b" in data.latest
-            and data.latest["tuya/bed/availability"].payload == b"online"
-            and data.payload("tuya/bed/side_a")["session_id"]
-            == data.payload("tuya/bridge/heartbeat")["session_id"]
-            and data.payload("tuya/bed/side_b")["session_id"]
-            == data.payload("tuya/bridge/heartbeat")["session_id"]
-        )
-    )
 
 
 async def http_snapshot(config_data: dict[str, Any]) -> dict[str, Any]:

@@ -24,5 +24,8 @@ ordering must be verified on the deployed controller.
 `tuya-mqtt run --config /path/to/config.json` runs the MQTT daemon. The
 [setup guide](docs/setup.md#http-diagnostics) describes the live status,
 health/readiness, and Prometheus routes. The
-[implementation status](docs/implementation-status.md) tracks containers,
-Hoboken, and physical acceptance work still in progress.
+[deployment guide](docs/deployment.md) covers Distroless images, release gates,
+updates, and rollback; [troubleshooting](docs/troubleshooting.md) explains
+common failure states. The
+[implementation status](docs/implementation-status.md) tracks Hoboken and
+physical acceptance work still in progress.

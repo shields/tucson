@@ -100,5 +100,7 @@ Known secrets are redacted from status strings and labels. HTTP access logs are
 disabled so request URLs cannot expose credentials. Unexpected handler or
 publisher failures terminate the daemon with a nonzero exit.
 
-Container deployment, Hoboken, and hardware acceptance remain in progress; the
-[implementation status](implementation-status.md) records those gates.
+Use the [deployment guide](deployment.md) for container mounts, LAN access,
+release gates, and rollback. The
+[implementation status](implementation-status.md) records Hoboken and hardware
+acceptance still in progress.

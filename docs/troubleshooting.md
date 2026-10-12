@@ -1,0 +1,27 @@
+# Troubleshooting
+
+Start with the status page and `/readyz`; use `/healthz` to distinguish a live
+process waiting for dependencies from failed coordination. Check JSON logs and
+Prometheus metrics for the bounded error code, freshness ages, reconnect count,
+queue depth, command outcome, and source revision. Keep raw configuration,
+credential files, and TinyTuya objects out of diagnostic output.
+
+| Symptom                                            | Checks and action                                                                                                                                                                                                                                                            |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Validation exits nonzero                           | Run `validate-config` with the same mounts or environment as the daemon. Check JSON syntax, duplicate keys, required fields, unique identities/topics, protocol strings, secret references, and UID/GID 65532 read access. Configuration errors omit supplied values.        |
+| Liveness fails or the process exits                | Unexpected application errors and violated worker/shutdown bounds are fatal. Inspect the logged exception type and revision, fix the cause, and restart explicitly. A dependency outage alone should leave liveness healthy.                                                 |
+| MQTT remains disconnected                          | Verify broker DNS/routing/port, credentials, CA/client certificate mounts, TLS verification, MQTT 5 support, and ACLs for all configured topics. Reconnect/failure counters show continued attempts. Qualify granted QoS and subscription options on the deployed broker.    |
+| Controller remains unavailable                     | Verify reserved LAN address, configured port and measured protocol, secret-file access/key, Wi-Fi, and exclusive connection ownership. Stop competing LAN bridges or inspection tools. Changed pairing requires replacing the key and restarting.                            |
+| Full-status age grows or mapped fields are invalid | Confirm the controller’s actual firmware and DP map against the acceptance record. A socket alone does not establish usability; fresh full status and the current MQTT session are required. Previous snapshots are diagnostic and do not satisfy readiness.                 |
+| Heat setting changes after a successful command    | Compare reported state with the physical controller. Preheat completion, timer expiry, and the manual’s presence rule are firmware behavior to qualify. The bridge reports observed changes and does not restore a desired level periodically.                               |
+| Command is rejected                                | Check the result’s error code, current availability/session, strict payload ranges and combinations, enabled write policy, queue depth, and arrival deadline. Commands must be non-retained QoS 0 publications. A retained or expired request does not reach the controller. |
+| Command is unconfirmed                             | The write may have reached the controller. Read fresh reported state and inspect the error code. Do not automatically retry a possibly applied write. A new explicit request needs a new request ID; terminal results are session-bound and cached briefly.                  |
+| State looks old after a restart                    | Require a live bridge heartbeat, matching session ID, controller availability, and fresh reported fields. Retained state alone is insufficient. An empty non-retained `get` request republishes usable current snapshots.                                                    |
+| Status stream returns HTTP 503                     | Check that the server is running and fewer than 16 streams are connected. Close unused tabs/readers. Slow streams have bounded writes and are released; each stream stores only the latest diagnostic update.                                                                |
+| Release is refused                                 | Inspect the failing required job or immutable-tag error. Fix the failure or create a new version/source revision; do not replace an existing release tag. Verify both image artifacts came from the same checked workflow run.                                               |
+
+Restarting after a broker or controller outage establishes fresh observations
+without outbound write replay. Record reproducible adapter failures with exact
+versions, protocol, sanitized numeric DPs, and decoded simulator write counts.
+The [hardware acceptance record](hardware-acceptance.md) distinguishes simulated
+transport evidence from measured controller behavior.
