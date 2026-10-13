@@ -69,6 +69,8 @@ class Device:
         result = self.pushes.popleft() if self.pushes else None
         if isinstance(result, Exception):
             raise result
+        if result is not None:
+            self.state.update(result)
         return result
 
     def heartbeat(self) -> None:

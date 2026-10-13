@@ -38,8 +38,6 @@ MAX_BACKOFF = 60.0
 IDLE_SLICE = 0.25
 CONFIRMATION_POLL_INTERVAL = 1.0
 REQUIRED_FIELDS = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT)
-# Only the required fields gate a full status, so optional DPs such as the fault
-# bitmap may be absent.
 REQUIRED_BASELINE = frozenset(
     dp
     for zone in DP_MAP

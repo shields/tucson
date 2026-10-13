@@ -1,6 +1,8 @@
 import asyncio
 import json
+import re
 from dataclasses import replace
+from importlib.resources import files
 lazy from collections.abc import AsyncIterator
 lazy from pathlib import Path
 
@@ -11,7 +13,14 @@ from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 import tuya_mqtt.status_page as status_module
 from tuya_mqtt.bridge import Bridge
 from tuya_mqtt.config import load_config
-from tuya_mqtt.domain import CommandResult, Completion, ErrorCode, Outcome, Request
+from tuya_mqtt.domain import (
+    CommandResult,
+    Completion,
+    ErrorCode,
+    Field,
+    Outcome,
+    Request,
+)
 from tuya_mqtt.profiles.sunbeam import parse_command
 from tuya_mqtt.status_page import CLIENT_LIMIT, StatusServer, latest
 
@@ -82,6 +91,15 @@ async def test_http_health_readiness_metrics_and_read_only_page(
     server.bridge.stop()
     assert (await client.get("/healthz")).status == 503
     assert (await client.get("/readyz")).status == 503
+
+
+def test_status_page_labels_every_field_in_domain_order() -> None:
+    page = files("tuya_mqtt").joinpath("status.html").read_text()
+    literal = re.search(r"const fields = \{([^}]*)\}", page)
+    assert literal is not None
+    assert re.findall(r"^\s*(\w+):", literal[1], re.MULTILINE) == [
+        field.value for field in Field
+    ]
 
 
 async def test_diagnostics_keep_unknown_previous_pending_and_results_separate(

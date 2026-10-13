@@ -49,8 +49,6 @@ DP_MAP = (
     ("15", "21", "25", "27", "29", "103", FAULT_DP),
 )
 REQUIRED_DPS = tuple(dict.fromkeys(dp for zone in DP_MAP for dp in zone))
-# A controller that omits DP 13 would otherwise be queried twice on every connect.
-COMPLETE_STATUS_DPS = tuple(dp for dp in REQUIRED_DPS if dp != FAULT_DP)
 WRITABLE = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT, Field.AUTO_OFF_SECONDS)
 type WriteMode = Literal["disabled", "multi_dp", "level_before_power"]
 

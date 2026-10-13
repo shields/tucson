@@ -33,10 +33,11 @@ excluded from the adapter. A send-only `None` result is transport completion,
 not confirmation. The controller worker must confirm requested values from fresh
 reports.
 
-Device22 detection resets the requested DP list inside TinyTuya. An incomplete
-initial report causes the adapter to restore the complete configured DP set and
-request status again. The worker remains responsible for checking the usable
-baseline and freshness before advertising availability.
+Device22 detection resets the requested DP list inside TinyTuya. An initial
+report missing any mapped DP except the optional fault bitmap (DP 13) causes the
+adapter to restore the complete configured DP set and request status again. The
+worker remains responsible for checking the usable baseline and freshness before
+advertising availability.
 
 ## Maintained cases
 

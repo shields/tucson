@@ -1,6 +1,7 @@
 from dataclasses import replace
 lazy from pathlib import Path
 
+import pytest
 from prometheus_client.parser import text_string_to_metric_families
 
 from tuya_mqtt.bridge import Bridge, publication_failures
@@ -21,14 +22,20 @@ def samples(metrics: Metrics) -> dict[tuple[str, tuple[tuple[str, str], ...]], f
     }
 
 
-def test_metrics_follow_shared_state_and_bound_labels(
-    config_path: Path, secret_env: dict[str, str]
-) -> None:
+@pytest.fixture
+def rig(config_path: Path, secret_env: dict[str, str]) -> tuple[Metrics, Worker]:
     resolved = load_config(config_path, env=secret_env)
     clock = Clock(now=10)
     worker = Worker(clock)
     bridge = Bridge(resolved, (worker,), MQTT, clock=clock, logger=Log())
-    metrics = Metrics(bridge, resolved.local_keys)
+    return Metrics(bridge, resolved.local_keys), worker
+
+
+def test_metrics_follow_shared_state_and_bound_labels(
+    rig: tuple[Metrics, Worker],
+) -> None:
+    metrics, worker = rig
+    bridge = metrics.bridge
     initial = samples(metrics)
     assert initial["tuya_mqtt_mqtt_connected", ()] == 0
     assert initial[
@@ -88,13 +95,9 @@ def test_metrics_follow_shared_state_and_bound_labels(
 
 
 def test_fault_code_metric_is_absent_until_reported(
-    config_path: Path, secret_env: dict[str, str]
+    rig: tuple[Metrics, Worker],
 ) -> None:
-    resolved = load_config(config_path, env=secret_env)
-    clock = Clock(now=10)
-    worker = Worker(clock)
-    bridge = Bridge(resolved, (worker,), MQTT, clock=clock, logger=Log())
-    metrics = Metrics(bridge, resolved.local_keys)
+    metrics, worker = rig
     key = ("tuya_mqtt_controller_fault_code", (("controller", "bed"),))
     assert key not in samples(metrics)
     worker.view = replace(

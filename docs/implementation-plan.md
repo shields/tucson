@@ -152,7 +152,7 @@ export it as a metric, but do not let it alter availability, readiness, or
 command admission until the bits are understood. A non-integer, negative, or
 larger-than-9,007,199,254,740,991 value is a compatibility error on this
 optional field, not a fault code, so neither JSON nor Prometheus loses precision
-or fails on it.
+or fails on it. The two countdown fields are validated the same way.
 
 The starting source is the
 [Sunbeam dual-zone definition](https://github.com/make-all/tuya-local/blob/main/custom_components/tuya_local/devices/sunbeam_dual_bedwarmer.yaml).

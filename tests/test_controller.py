@@ -36,6 +36,10 @@ class Harness:
         for _ in range(count):
             self.core.tick()
 
+    def push(self, dps: dict[str, object] | Exception) -> None:
+        self.device.pushes.append(dps)
+        self.tick()
+
     def online(self) -> None:
         self.mailbox.set_session("session")
         self.tick(3)
@@ -176,55 +180,69 @@ def fault_events(harness: Harness) -> list[tuple[str, str, dict[str, object]]]:
     return [event for event in harness.log.events if "fault" in event[1]]
 
 
+def fault_log(harness: Harness) -> list[tuple[str, str, object, object]]:
+    return [
+        (level, event, fields["previous_fault_code"], fields["fault_code"])
+        for level, event, fields in fault_events(harness)
+    ]
+
+
 def test_fault_code_is_reported_and_logged_when_it_changes(harness: Harness) -> None:
     harness.online()
     assert [zone.fault_code for zone in harness.core.view.zones] == [0, 0]
     assert not fault_events(harness)
-    harness.device.pushes.append({"13": 4})
-    harness.tick()
+    logged = len(harness.log.events)
+    harness.push({"13": 4})
     assert harness.core.view.online
     assert [zone.fault_code for zone in harness.core.view.zones] == [4, 4]
-    assert fault_events(harness)[-1] == (
-        "error",
-        "controller_fault",
-        {
-            "operation": "report",
-            "fault_code": 4,
-            "previous_fault_code": 0,
-            "generation": 1,
-        },
-    )
-    count = len(harness.log.events)
-    harness.device.pushes.append({"13": 4, "14": True})
-    harness.tick()
-    harness.device.pushes.append({"14": False})
-    harness.tick()
-    assert len(harness.log.events) == count
-    harness.device.pushes.append({"13": 6})
-    harness.tick()
-    assert harness.log.events[-1][1:] == (
-        "controller_fault",
-        {
-            "operation": "report",
-            "fault_code": 6,
-            "previous_fault_code": 4,
-            "generation": 1,
-        },
-    )
-    harness.device.pushes.append({"13": 0})
-    harness.tick()
-    assert harness.log.events[-1] == (
-        "info",
-        "controller_fault_cleared",
-        {
-            "operation": "report",
-            "fault_code": 0,
-            "previous_fault_code": 6,
-            "generation": 1,
-        },
-    )
+    harness.push({"13": 4, "14": True})
+    harness.push({"14": False})
+    harness.push({"13": 6})
+    harness.push({"13": 0})
+    assert harness.log.events[logged:] == [
+        (
+            "error",
+            "controller_fault",
+            {
+                "operation": "report",
+                "fault_code": 4,
+                "previous_fault_code": 0,
+                "generation": 1,
+            },
+        ),
+        (
+            "error",
+            "controller_fault",
+            {
+                "operation": "report",
+                "fault_code": 6,
+                "previous_fault_code": 4,
+                "generation": 1,
+            },
+        ),
+        (
+            "info",
+            "controller_fault_cleared",
+            {
+                "operation": "report",
+                "fault_code": 0,
+                "previous_fault_code": 6,
+                "generation": 1,
+            },
+        ),
+    ]
     assert harness.core.view.online
     assert harness.core.view.last_error is None
+
+
+def test_pushed_fault_survives_a_status_refresh(harness: Harness) -> None:
+    harness.online()
+    harness.push({"13": 4})
+    harness.mailbox.refresh()
+    harness.tick()
+    assert harness.device.calls[-1][0] == "status"
+    assert [zone.fault_code for zone in harness.core.view.zones] == [4, 4]
+    assert fault_log(harness) == [("error", "controller_fault", 0, 4)]
 
 
 def test_fault_present_at_connection_is_logged(harness: Harness) -> None:
@@ -232,10 +250,7 @@ def test_fault_present_at_connection_is_logged(harness: Harness) -> None:
     harness.online()
     assert [zone.fault_code for zone in harness.core.view.zones] == [2, 2]
     assert harness.core.view.online
-    (event,) = fault_events(harness)
-    assert event[:2] == ("error", "controller_fault")
-    assert event[2]["fault_code"] == 2
-    assert event[2]["previous_fault_code"] is None
+    assert fault_log(harness) == [("error", "controller_fault", None, 2)]
 
 
 @pytest.mark.parametrize("invalid", [-1, 2**53, 10**400])
@@ -243,23 +258,20 @@ def test_invalid_fault_code_is_a_visible_optional_compatibility_error(
     harness: Harness, invalid: int
 ) -> None:
     harness.online()
-    harness.device.pushes.append({"13": invalid})
-    harness.tick()
+    harness.push({"13": invalid})
     assert harness.core.view.online
     assert harness.core.view.last_error is ErrorCode.COMPATIBILITY
     assert harness.core.view.invalid_fields == (frozenset({Field.FAULT_CODE}),) * 2
     assert [zone.fault_code for zone in harness.core.view.zones] == [None, None]
     assert not fault_events(harness)
-    harness.device.pushes.append({"13": 0})
-    harness.tick()
+    harness.push({"13": 0})
     assert harness.core.view.last_error is None
     assert [zone.fault_code for zone in harness.core.view.zones] == [0, 0]
     assert not fault_events(harness)
 
 
 def reconnect_with_fault(harness: Harness, fault: int) -> None:
-    harness.device.pushes.append(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
-    harness.tick()
+    harness.push(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
     assert not harness.core.view.online
     harness.device.state["13"] = fault
     harness.clock.advance(1)
@@ -272,7 +284,6 @@ def test_unchanged_fault_is_not_logged_again_after_reconnect_or_session_change(
 ) -> None:
     harness.device.state["13"] = 4
     harness.online()
-    assert len(fault_events(harness)) == 1
     reconnect_with_fault(harness, 4)
     harness.mailbox.set_session("new-session")
     harness.tick(3)
@@ -283,7 +294,7 @@ def test_unchanged_fault_is_not_logged_again_after_reconnect_or_session_change(
     harness.tick(3)
     assert harness.core.view.online
     assert harness.core.view.generation >= 3
-    assert len(fault_events(harness)) == 1
+    assert fault_log(harness) == [("error", "controller_fault", None, 4)]
 
 
 def test_fault_changes_and_clears_are_logged_across_disconnects(
@@ -292,37 +303,28 @@ def test_fault_changes_and_clears_are_logged_across_disconnects(
     harness.device.state["13"] = 4
     harness.online()
     reconnect_with_fault(harness, 6)
-    assert fault_events(harness)[-1][:2] == ("error", "controller_fault")
-    assert fault_events(harness)[-1][2]["previous_fault_code"] == 4
     reconnect_with_fault(harness, 0)
-    assert fault_events(harness)[-1][:2] == ("info", "controller_fault_cleared")
-    assert fault_events(harness)[-1][2]["previous_fault_code"] == 6
-    count = len(fault_events(harness))
     reconnect_with_fault(harness, 0)
-    assert len(fault_events(harness)) == count
+    assert fault_log(harness) == [
+        ("error", "controller_fault", None, 4),
+        ("error", "controller_fault", 4, 6),
+        ("info", "controller_fault_cleared", 6, 0),
+    ]
 
 
 def test_invalid_fault_is_not_a_clear_and_does_not_repeat_the_fault(
     harness: Harness,
 ) -> None:
     harness.online()
-    harness.device.pushes.append({"13": 4})
-    harness.tick()
-    harness.device.pushes.append({"13": -1})
-    harness.tick()
-    assert [event[1] for event in fault_events(harness)] == ["controller_fault"]
-    harness.device.pushes.append({"13": 4})
-    harness.tick()
-    assert [event[1] for event in fault_events(harness)] == ["controller_fault"]
-    harness.device.pushes.append({"13": -1})
-    harness.tick()
-    harness.device.pushes.append({"13": 0})
-    harness.tick()
-    assert [event[1] for event in fault_events(harness)] == [
-        "controller_fault",
-        "controller_fault_cleared",
+    harness.push({"13": 4})
+    harness.push({"13": -1})
+    harness.push({"13": 4})
+    harness.push({"13": -1})
+    harness.push({"13": 0})
+    assert fault_log(harness) == [
+        ("error", "controller_fault", 0, 4),
+        ("info", "controller_fault_cleared", 4, 0),
     ]
-    assert fault_events(harness)[-1][2]["previous_fault_code"] == 4
 
 
 def test_full_status_does_not_require_the_fault_dp(harness: Harness) -> None:

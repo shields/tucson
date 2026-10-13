@@ -5,7 +5,7 @@ lazy from collections.abc import Callable, Mapping
 import tinytuya
 
 from .domain import BridgeError, ErrorCode, Value
-from .profiles.sunbeam import COMPLETE_STATUS_DPS, REQUIRED_DPS
+from .profiles.sunbeam import FAULT_DP, REQUIRED_DPS
 lazy from .config import ControllerConfig
 
 REQUEST_TIMEOUT = 2.0
@@ -102,8 +102,9 @@ class TinyTuyaClient:
         device.set_dpsUsed(dict.fromkeys(REQUIRED_DPS))
         try:
             result = _normalize(device.status())
+            # The fault bitmap is optional, so its absence needs no re-query.
             if result is not None and any(
-                dp not in result for dp in COMPLETE_STATUS_DPS
+                dp not in result for dp in REQUIRED_DPS if dp != FAULT_DP
             ):
                 # Device22 detection resets TinyTuya's requested DP set to DP 1.
                 device.set_dpsUsed(dict.fromkeys(REQUIRED_DPS))

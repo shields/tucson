@@ -7,7 +7,7 @@ production compatibility remains unproven until this record is complete.
 
 ## Available evidence
 
-The controller’s label reads style PP21KQ, 120 VAC, 360 W, FCC ID 2ANDL-WBR3, IC
+The controller’s label reads style PP21KQ, 120 VAC, 360 W, FCC ID 2ANDL-WBR3, IC
 23243-WBR3. The supplied manual is `Heated blanket_mattress pad_21EFM1.pdf`, the
 Sunbeam Connected Heated Bedding user manual. Its FCC declaration names the same
 FCC ID and IC as the label but does not name style PP21KQ, so the match rests on
@@ -66,7 +66,7 @@ more than the standard instruction set that TinyTuya’s wizard saves:
 | DP       | Meaning               | Observed values and notes                                                                                                                                                                                                           |
 | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 14, 15   | Power, side A and B   | Boolean.                                                                                                                                                                                                                            |
-| 20, 21   | Heat level, A and B   | `level_1` (the idle setting), `level_3`, `level_5`, and `level_10` (during preheat); levels 3 and 5 set on the controller reported `level_3` and `level_5`.                                                                         |
+| 20, 21   | Heat level, A and B   | `level_1` (the idle setting), `level_3`, `level_4` (after the one-hour presence rule), `level_5`, and `level_10` (during preheat); levels 3 and 5 set on the controller reported `level_3` and `level_5`.                           |
 | 24, 25   | Preheat, A and B      | Boolean.                                                                                                                                                                                                                            |
 | 26, 27   | Auto-off, A and B     | `10h` by default; side A also reported `30m`, `1h30m`, `5h`, and `Stay_On` after changes in the app. The `7h30` spelling is unverified.                                                                                             |
 | 28, 29   | Remaining seconds     | Resets to the selected duration when the timer changes, then falls by 60 once a minute while the side is on (36,000, 35,940, …).                                                                                                    |
@@ -97,11 +97,11 @@ The profile does not use DPs 1, 4, 8, 104, or 105. DP 13 is published as
 Side A was turned on from the Smart Life app at 21:32:35 and raised to level 5
 from the app at 21:35:34. The check button on the controller was not pressed.
 
-| Time after power-on | Reported change                                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 minutes           | DP 104 became `45_Minutes_Before`.                                                                                                                         |
-| 45 minutes          | DP 104 became `15_Minutes_Left`.                                                                                                                           |
-| 60 minutes          | DP 104 became `One_Hour_Later`, and within 0.1 s the level dropped from `level_5` to `level_4` on DP 20 (side A), DP 4 (combined), and DP 21 (**side B**). |
+| Time after power-on | Reported change                                                                                                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 minutes           | DP 104 became `45_Minutes_Before`.                                                                                                                          |
+| 45 minutes          | DP 104 became `15_Minutes_Left`.                                                                                                                            |
+| 60 minutes          | DP 104 became `One_Hour_Later`, and within 0.11 s the level dropped from `level_5` to `level_4` on DP 20 (side A), DP 4 (combined), and DP 21 (**side B**). |
 
 Side B was off and had not been activated remotely, yet its stored level was
 lowered as well. The cap applies to every zone’s selected level, and the
