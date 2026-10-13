@@ -232,6 +232,46 @@ async def test_results_follow_the_state_they_confirm(
         await stop(bridge, task)
 
 
+async def test_a_result_from_the_snapshot_read_follows_its_state(
+    rig: tuple[Bridge, Worker, MQTT, Scheduler],
+) -> None:
+    bridge, worker, mqtt, scheduler = rig
+    worker.auto_confirm = False
+    task = await start(bridge, mqtt)
+    try:
+        await bridge.handle(
+            mqtt,
+            Message(
+                "tuya/bed/side_a/set",
+                b'{"request_id":"a","power":true,"heat_level":6}',
+                retained=False,
+            ),
+        )
+
+        def finish_after_the_read() -> None:
+            worker.on_snapshot = None
+            worker.confirm(worker.requests[0])
+
+        worker.on_snapshot = finish_after_the_read
+        scheduler.advance(0.05)
+        await eventually(lambda: worker.on_snapshot is None)
+        scheduler.advance(0.05)
+        await eventually(
+            lambda: (
+                bool(publications(mqtt, "tuya/bed/side_a/result"))
+                and len(publications(mqtt, "tuya/bed/side_a")) == 2
+            )
+        )
+        topics = [
+            topic
+            for topic, *_ in mqtt.publications
+            if topic.startswith("tuya/bed/side_a")
+        ]
+        assert topics[-1] == "tuya/bed/side_a/result"
+    finally:
+        await stop(bridge, task)
+
+
 @pytest.mark.parametrize(
     "payload",
     [

@@ -5,6 +5,7 @@ import pytest
 
 from tuya_mqtt.domain import (
     BridgeError,
+    Command,
     CommandResult,
     ErrorCode,
     Field,
@@ -20,6 +21,7 @@ from tuya_mqtt.profiles.sunbeam import (
     decode_report,
     encode_command,
     parse_command,
+    write_dps,
 )
 
 
@@ -34,14 +36,43 @@ def test_levels_and_zone_isolation(zone: int, level: int) -> None:
     assert encode_command(command, zone) == {DP_MAP[zone][1]: f"level_{level}"}
 
 
-@pytest.mark.parametrize("zone", [0, 1])
-@pytest.mark.parametrize(("enum", "seconds"), TIMERS.items())
+@pytest.mark.parametrize(
+    ("zone", "enum", "seconds"),
+    [
+        (zone, enum, seconds)
+        for zone in (0, 1)
+        for enum, seconds in TIMERS[zone].items()
+    ],
+)
 def test_timer_table(zone: int, enum: str, seconds: int) -> None:
     report = decode_report({DP_MAP[zone][3]: enum}, zone)
     assert report.updates == ((Field.AUTO_OFF_SECONDS, seconds),)
     command = parse_command(json.dumps({"auto_off_seconds": seconds}).encode())
     assert encode_command(command, zone) == {DP_MAP[zone][3]: enum}
-    assert TIMERS["Stay_On"] == 86400
+    assert TIMERS[zone]["Stay_On"] == 86400
+
+
+def test_each_side_has_its_own_spelling_of_seven_and_a_half_hours() -> None:
+    assert TIMERS[0]["7h30"] == TIMERS[1]["7h30m"] == 27000
+    assert TIMERS[0].keys() ^ TIMERS[1].keys() == {"7h30", "7h30m"}
+    assert len(TIMERS[0]) == len(TIMERS[1]) == 21
+    for zone, rejected in ((0, "7h30m"), (1, "7h30")):
+        report = decode_report({DP_MAP[zone][3]: rejected}, zone)
+        assert report.invalid_fields == (Field.AUTO_OFF_SECONDS,)
+    command = parse_command(b'{"auto_off_seconds":27000}')
+    assert encode_command(command, 0) == {"26": "7h30"}
+    assert encode_command(command, 1) == {"27": "7h30m"}
+
+
+def test_power_off_must_stand_alone() -> None:
+    assert parse_command(b'{"power":false}').values == ((Field.POWER, False),)
+    for mixed in (
+        Command("r", ((Field.POWER, False), (Field.HEAT_LEVEL, 3))),
+        Command("r", ((Field.HEAT_LEVEL, 3), (Field.POWER, False))),
+    ):
+        with pytest.raises(BridgeError) as caught:
+            write_dps(mixed, 0, "multi_dp")
+        assert caught.value.code == ErrorCode.INVALID_COMMAND
 
 
 @pytest.mark.parametrize("zone", [0, 1])
@@ -182,6 +213,8 @@ def test_partial_merges_and_unknown_fields() -> None:
         json.dumps({"request_id": "x" * 129, "power": True}).encode(),
         b'{"preheat":true,"power":false}',
         b'{"preheat":false,"heat_level":2}',
+        b'{"power":false,"heat_level":3}',
+        b'{"power":false,"auto_off_seconds":3600}',
     ],
 )
 def test_invalid_command(payload: bytes) -> None:
@@ -190,7 +223,7 @@ def test_invalid_command(payload: bytes) -> None:
     assert caught.value.code == ErrorCode.INVALID_COMMAND
 
 
-def test_command_normalization_and_no_implicit_power() -> None:
+def test_command_normalization_and_level_only_encoding() -> None:
     first = parse_command(b'{"request_id":"r","heat_level":6,"power":true}')
     second = parse_command(b'{"power":true,"heat_level":6,"request_id":"r"}')
     assert first == second

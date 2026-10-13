@@ -207,14 +207,12 @@ def collect_completion(worker: ControllerWorker) -> Completion:
     return results[0]
 
 
-def worker_for(
-    simulator: Simulator, config: ControllerConfig, *, mode: str = "multi_dp"
-) -> ControllerWorker:
+def worker_for(simulator: Simulator, config: ControllerConfig) -> ControllerWorker:
     config = config.model_copy(
         update={
             "ip": "127.0.0.1",
             "protocol_version": simulator.mock.config.version,
-            "write_mode": mode,
+            "write_mode": "multi_dp",
         }
     )
     worker = ControllerWorker(
@@ -270,10 +268,10 @@ def test_worker_with_real_adapter_and_both_zones(
 
 
 @pytest.mark.parametrize("simulator", ["3.3", "3.4", "3.5"], indirect=True)
-def test_worker_partial_failure_reconnects_without_replay(
+def test_worker_write_failure_reconnects_without_replay(
     simulator: Simulator, controller_config: ControllerConfig
 ) -> None:
-    worker = worker_for(simulator, controller_config, mode="level_before_power")
+    worker = worker_for(simulator, controller_config)
     try:
         wait_worker(lambda: worker.snapshot.online, worker)
         simulator.mode = "close"
@@ -283,13 +281,13 @@ def test_worker_partial_failure_reconnects_without_replay(
         )
         result = collect_completion(worker)
         assert result.result.outcome is Outcome.UNCONFIRMED
-        assert simulator.writes == [{"20": "level_6"}]
+        assert simulator.writes == [{"14": True, "20": "level_6"}]
         wait_worker(
             lambda: worker.snapshot.online and worker.snapshot.generation >= 2, worker
         )
         assert worker.snapshot.zones[0].heat_level == 6
-        assert worker.snapshot.zones[0].power is False
-        assert simulator.writes == [{"20": "level_6"}]
+        assert worker.snapshot.zones[0].power is True
+        assert simulator.writes == [{"14": True, "20": "level_6"}]
     finally:
         worker.stop()
         worker.join(3)

@@ -73,7 +73,7 @@ without copying its vacuum-specific behavior.
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `config.py`                              | Strict parsing into immutable typed configuration; secret resolution.                                          |
 | `domain.py`                              | Controller and zone identifiers, reported state, commands, results, connection states, and typed errors.       |
-| `profiles/sunbeam.py`                    | Pure DP decoding, enum conversion, capability validation, and verified write ordering.                         |
+| `profiles/sunbeam.py`                    | Pure DP decoding, enum conversion, capability validation, and write encoding.                                  |
 | `tuya_client.py`                         | The only application module importing TinyTuya; serialized device access and normalization of library results. |
 | `controller.py`                          | Per-controller worker lifecycle, polling, heartbeats, command deadlines, and reconnect policy.                 |
 | `bridge.py`                              | MQTT connection lifecycle, subscriptions, retained snapshots, availability, and command/result routing.        |
@@ -134,15 +134,15 @@ After re-pairing, replacing the local key is an explicit configuration update.
 Begin with the documented dual-zone mapping, then qualify every writable field
 on the actual controller:
 
-| Domain field                | Side A DP | Side B DP | Encoding                                       |
-| --------------------------- | --------- | --------- | ---------------------------------------------- |
-| `power`                     | 14        | 15        | Boolean                                        |
-| `heat_level`                | 20        | 21        | `level_1` through `level_10`                   |
-| `preheat`                   | 24        | 25        | Boolean                                        |
-| `auto_off_seconds`          | 26        | 27        | Explicit lookup table of supported timer enums |
-| `remaining_seconds`         | 28        | 29        | Nonnegative seconds; read-only                 |
-| `preheat_remaining_seconds` | 102       | 103       | Nonnegative seconds; read-only                 |
-| `fault_code`                | 13        | 13        | Nonnegative bitmap; read-only; shared          |
+| Domain field                | Side A DP | Side B DP | Encoding                              |
+| --------------------------- | --------- | --------- | ------------------------------------- |
+| `power`                     | 14        | 15        | Boolean                               |
+| `heat_level`                | 20        | 21        | `level_1` through `level_10`          |
+| `preheat`                   | 24        | 25        | Boolean                               |
+| `auto_off_seconds`          | 26        | 27        | Per-side lookup table of timer enums  |
+| `remaining_seconds`         | 28        | 29        | Nonnegative seconds; read-only        |
+| `preheat_remaining_seconds` | 102       | 103       | Nonnegative seconds; read-only        |
+| `fault_code`                | 13        | 13        | Nonnegative bitmap; read-only; shared |
 
 DP 13 is one controller-wide fault bitmap, so both zone snapshots carry the same
 `fault_code`. The meaning of its bits is unknown: Tuya’s schema labels 13 bits
@@ -238,11 +238,19 @@ before making any write. Define supported field combinations in the profile;
 initially keep preheat changes separate from other commands and reject
 contradictory requests such as power-off combined with preheat-on.
 
-`heat_level` alone changes the selected level without an implicit power-on in
-the bridge. Whether the firmware itself changes power must be established by
-hardware testing and reported truthfully. Hoboken explicitly sends both fields
-for a positive speed request. Enabling or disabling preheat writes its verified
-DP and reflects any firmware side effects in reported state.
+The Sunbeam PP21KQ firmware turns a side on whenever a level is written, even in
+a packet that also says power off, so a level cannot be selected while the side
+stays off. Power off therefore stands alone. A command with `heat_level` and no
+`power` is sent as a level write for a side that is on, and as an explicit power
+on plus the level for a side that is off, decided from fresh state just before
+the write. The explicit power write matters because only it starts the
+controller’s presence-confirmation window. A `power: true` command is sent as
+given. The firmware ignores a timer for a side that is off, so
+`auto_off_seconds` without `power` or `heat_level` is rejected with `zone_off`
+for a side that is off. Hoboken explicitly sends both fields for a positive
+speed request. Enabling or disabling preheat writes its verified DP and reflects
+any firmware side effects in reported state, which includes turning the side on
+at level 10.
 
 Use a terminal outcome of `confirmed`, `rejected`, or `unconfirmed`:
 
@@ -342,19 +350,18 @@ exceptions into explicit adapter errors.
 
 Before executing each command, recheck availability, connection generation,
 deadline, and required state. Reject full or expired queues visibly. Serialize
-commands for both zones through the controller worker. Prefer one multi-DP write
-only if the firmware has been verified to support it. Otherwise use the tested
-profile order, such as setting a level before enabling power where that behavior
-is confirmed. Multi-step writes are not atomic: a partial success is
-`unconfirmed`, followed by state readback, with no speculative rollback.
+commands for both zones through the controller worker. Send each command as one
+multi-DP write, which the PP21KQ firmware was verified to support for power,
+timer, and level together. A write that is sent and then fails or loses its
+connection may have taken effect, so the result is `unconfirmed`, followed by
+state readback, with no speculative rollback.
 
 For confirmation, process reports received after the write and perform a fresh
 status query when needed. A prior cached match or an empty transport ACK is not
-enough. On timeout or connection loss, stop issuing further steps and record an
-unconfirmed result. Late reports still update state but do not change an already
-returned result. If MQTT has disappeared, retain the outcome only in
-diagnostics; the caller times out and must read current state before deciding
-what to do next.
+enough. On timeout or connection loss, record an unconfirmed result. Late
+reports still update state but do not change an already returned result. If MQTT
+has disappeared, retain the outcome only in diagnostics; the caller times out
+and must read current state before deciding what to do next.
 
 ### Qualify TinyTuya’s retry behavior first
 
@@ -487,14 +494,14 @@ failure tests or removal of unreachable code, not broad coverage exclusions.
 
 Test the following observable behavior:
 
-| Area          | Required cases                                                                                                                                 |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Configuration | Unknown keys, duplicate identities, missing secrets, invalid versions and ranges, sanitized errors.                                            |
-| DP conversion | Every supported level and timer, both zones, unrelated DPs, invalid mapped fields, partial merges, reconnect baseline reset.                   |
-| Commands      | Full validation before writes, supported combinations, queue bounds, expiry, duplicate IDs, partial success, empty ACK, confirmation, timeout. |
-| Lifecycle     | Initial failure, repeated failure, jitter bounds, reset only after synchronization, stale state, receive timeout, cancellation and shutdown.   |
-| MQTT          | Changed-state deduplication, explicit refresh, session changes, rejected retained commands, unavailable ingress, publication failures.         |
-| Operations    | HTTP status codes, meaningful metrics, SSE lifecycle, secret redaction, fatal task failures.                                                   |
+| Area          | Required cases                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration | Unknown keys, duplicate identities, missing secrets, invalid versions and ranges, sanitized errors.                                          |
+| DP conversion | Every supported level and timer, both zones, unrelated DPs, invalid mapped fields, partial merges, reconnect baseline reset.                 |
+| Commands      | Full validation before writes, supported combinations, queue bounds, expiry, duplicate IDs, write failure, empty ACK, confirmation, timeout. |
+| Lifecycle     | Initial failure, repeated failure, jitter bounds, reset only after synchronization, stale state, receive timeout, cancellation and shutdown. |
+| MQTT          | Changed-state deduplication, explicit refresh, session changes, rejected retained commands, unavailable ingress, publication failures.       |
+| Operations    | HTTP status codes, meaningful metrics, SSE lifecycle, secret redaction, fatal task failures.                                                 |
 
 Write pytest tests as plain functions with bare assertions and fixtures, as
 specified by the

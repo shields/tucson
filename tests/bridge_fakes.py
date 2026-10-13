@@ -72,10 +72,14 @@ class Worker:
     joined: int = 0
     refreshes: int = 0
     join_threads: set[int] = field(default_factory=set)
+    on_snapshot: Callable[[], None] | None = None
 
     @property
     def snapshot(self) -> ControllerSnapshot:
-        return self.view
+        view = self.view
+        if self.on_snapshot is not None:
+            self.on_snapshot()
+        return view
 
     @property
     def queue_depth(self) -> int:

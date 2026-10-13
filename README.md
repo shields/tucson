@@ -25,7 +25,7 @@ protocols 3.3, 3.4, and 3.5. Missing checkouts or runtimes fail the target.
 
 Hardware qualification is required before production use. The built-in profile
 starts from the published dual-zone mapping; physical behavior and write
-ordering must be verified on the deployed controller.
+behavior must be verified on the deployed controller.
 
 `tuya-mqtt run --config /path/to/config.json` runs the MQTT daemon. The
 [setup guide](docs/setup.md#http-diagnostics) describes the live status,

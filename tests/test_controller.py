@@ -19,7 +19,7 @@ from tuya_mqtt.domain import (
 )
 from tuya_mqtt.profiles.sunbeam import parse_command
 lazy from tuya_mqtt.config import ControllerConfig
-lazy from tuya_mqtt.domain import ControllerSnapshot
+lazy from tuya_mqtt.domain import Completion, ControllerSnapshot
 
 from .controller_fakes import BASELINE, Clock, Device, Log
 
@@ -114,10 +114,7 @@ def test_partial_baseline_merges_and_unknown_countdowns(harness: Harness) -> Non
     harness.device.connections.append({"14": False, "20": "level_4"})
     harness.tick()
     assert harness.core.view.connection is ConnectionState.SYNCHRONIZING
-    harness.device.pushes.append(
-        {"24": False, "15": False, "21": "level_8", "25": True}
-    )
-    harness.tick()
+    harness.push({"24": False, "15": False, "21": "level_8", "25": True})
     assert harness.core.view.online
     assert harness.core.view.last_full_status is None
     assert harness.core.view.zones[1].heat_level == 8
@@ -127,10 +124,7 @@ def test_partial_baseline_merges_and_unknown_countdowns(harness: Harness) -> Non
 
 def test_physical_pushes_do_not_invent_countdowns(harness: Harness) -> None:
     harness.online()
-    harness.device.pushes.append(
-        {"14": True, "20": "level_2", "28": 1700, "999": "unrelated"}
-    )
-    harness.tick()
+    harness.push({"14": True, "20": "level_2", "28": 1700, "999": "unrelated"})
     state = harness.core.view.zones[0]
     assert state.power is True
     assert state.heat_level == 2
@@ -148,8 +142,7 @@ def test_invalid_required_push_takes_controller_offline(
     dp: str, value: object, harness: Harness
 ) -> None:
     harness.online()
-    harness.device.pushes.append({dp: value})
-    harness.tick()
+    harness.push({dp: value})
     assert harness.core.view.connection is ConnectionState.DISCONNECTED
     assert harness.core.view.last_error is ErrorCode.COMPATIBILITY
     assert harness.device.calls[-1][0] == "close"
@@ -160,8 +153,7 @@ def test_optional_compatibility_error_blocks_dependent_command(
     harness: Harness,
 ) -> None:
     harness.online()
-    harness.device.pushes.append({"26": "unexpected"})
-    harness.tick()
+    harness.push({"26": "unexpected"})
     assert harness.core.view.online
     assert harness.core.view.last_error is ErrorCode.COMPATIBILITY
     assert harness.core.view.zones[0].auto_off_seconds is None
@@ -171,8 +163,7 @@ def test_optional_compatibility_error_blocks_dependent_command(
     assert result.outcome is Outcome.REJECTED
     assert result.error_code is ErrorCode.COMPATIBILITY
     assert not harness.device.writes
-    harness.device.pushes.append({"26": "1h"})
-    harness.tick()
+    harness.push({"26": "1h"})
     assert harness.core.view.last_error is None
 
 
@@ -355,8 +346,7 @@ def test_fault_does_not_change_availability_or_command_admission(
 
 def test_reconnect_never_merges_previous_baseline(harness: Harness) -> None:
     harness.online()
-    harness.device.pushes.append(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
-    harness.tick()
+    harness.push(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
     harness.device.connections.append({"14": True})
     harness.clock.advance(1)
     harness.tick()
@@ -417,14 +407,12 @@ def test_backoff_is_capped_and_resets_only_after_synchronization(
     harness.device.connections.append({"14": True})
     harness.tick()
     assert not harness.core.view.online
-    harness.device.pushes.append(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
-    harness.tick()
+    harness.push(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
     assert harness.log.events[-1][2]["retry_delay"] == 60
     harness.clock.advance(60)
     harness.tick()
     assert harness.core.view.online
-    harness.device.pushes.append(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
-    harness.tick()
+    harness.push(BridgeError(ErrorCode.CONNECTION_LOST, "lost"))
     assert harness.log.events[-1][2]["retry_delay"] == 1 * (1 + 0.25 * jitter)
 
 
@@ -469,12 +457,8 @@ def test_failed_maintenance_invalidates_pending_work(
     assert not harness.device.writes
 
 
-@pytest.mark.parametrize("mode", ["multi_dp", "level_before_power"])
 @pytest.mark.parametrize("zone", [0, 1])
-def test_serialized_command_confirmation(
-    mode: str, zone: int, harness_factory: Callable[..., Harness]
-) -> None:
-    harness = harness_factory(mode=mode)
+def test_serialized_command_confirmation(zone: int, harness: Harness) -> None:
     harness.online()
     request = harness.admit(b'{"power":true,"heat_level":6}', zone)
     for _ in range(8):
@@ -483,14 +467,122 @@ def test_serialized_command_confirmation(
     assert result.request == request
     assert result.result.outcome is Outcome.CONFIRMED
     power_dp, level_dp = ("14", "20") if zone == 0 else ("15", "21")
-    expected = (
-        [{power_dp: True, level_dp: "level_6"}]
-        if mode == "multi_dp"
-        else [{level_dp: "level_6"}, {power_dp: True}]
-    )
-    assert harness.device.writes == expected
+    assert harness.device.writes == [{power_dp: True, level_dp: "level_6"}]
     assert harness.core.view.zones[zone].heat_level == 6
     assert harness.core.view.active is None
+
+
+@pytest.mark.parametrize("echo", [False, True])
+def test_completion_is_queued_after_the_state_that_confirms_it(
+    harness: Harness, *, echo: bool
+) -> None:
+    published: list[ControllerSnapshot] = []
+
+    class Recording(Mailbox):
+        def complete(self, completion: Completion) -> None:
+            published.append(self.snapshot)
+            super().complete(completion)
+
+    mailbox = Recording()
+    core = ControllerCore(
+        harness.core.config,
+        lambda: harness.device,
+        mailbox,
+        clock=harness.clock,
+        logger=harness.log,
+    )
+    harness = Harness(core, mailbox, harness.device, harness.clock, harness.log)
+    harness.online()
+    harness.device.echo_writes = echo
+    request = harness.admit(b'{"power":true,"heat_level":6}')
+    harness.tick(8)
+    assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
+    assert [request.command.matches(view.zones[0]) for view in published] == [True]
+
+
+@pytest.mark.parametrize("zone", [0, 1])
+def test_level_for_a_side_that_is_off_is_sent_with_power_on(
+    zone: int, harness: Harness
+) -> None:
+    harness.online()
+    harness.admit(b'{"heat_level":6}', zone)
+    harness.tick(8)
+    assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
+    power_dp, level_dp = ("14", "20") if zone == 0 else ("15", "21")
+    assert harness.device.writes == [{power_dp: True, level_dp: "level_6"}]
+    assert list(harness.device.writes[0]) == [power_dp, level_dp]
+    assert harness.core.view.zones[zone].power is True
+
+
+def test_level_for_a_side_that_is_off_is_confirmed_only_once_power_is_reported(
+    harness: Harness,
+) -> None:
+    harness.online()
+    harness.device.apply_writes = False
+    harness.device.pushes.append({"20": "level_6"})
+    harness.admit(b'{"heat_level":6}')
+    harness.tick(4)
+    assert harness.device.writes == [{"14": True, "20": "level_6"}]
+    assert not harness.mailbox.drain_results()
+    harness.push({"14": True})
+    assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
+
+
+def test_level_for_a_side_that_is_on_does_not_write_power(harness: Harness) -> None:
+    harness.device.state["14"] = True
+    harness.online()
+    harness.admit(b'{"heat_level":6}')
+    harness.tick(8)
+    assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
+    assert harness.device.writes == [{"20": "level_6"}]
+
+
+def test_level_and_timer_for_a_side_that_is_off_share_one_packet(
+    harness: Harness,
+) -> None:
+    harness.online()
+    harness.admit(b'{"heat_level":3,"auto_off_seconds":5400}')
+    harness.tick(8)
+    assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
+    assert harness.device.writes == [{"14": True, "20": "level_3", "26": "1h30m"}]
+    assert list(harness.device.writes[0]) == ["14", "20", "26"]
+
+
+@pytest.mark.parametrize("zone", [0, 1])
+def test_timer_alone_for_a_side_that_is_off_is_rejected(
+    zone: int, harness: Harness
+) -> None:
+    harness.online()
+    harness.admit(b'{"auto_off_seconds":5400}', zone)
+    harness.tick(3)
+    result = harness.mailbox.drain_results()[0].result
+    assert result.outcome is Outcome.REJECTED
+    assert result.error_code is ErrorCode.ZONE_OFF
+    assert not harness.device.writes
+
+
+@pytest.mark.parametrize(
+    ("zone", "dp", "enum"), [(0, "26", "7h30"), (1, "27", "7h30m")]
+)
+def test_timer_for_a_side_that_is_on_uses_that_sides_spelling(
+    zone: int, dp: str, enum: str, harness: Harness
+) -> None:
+    harness.device.state["14" if zone == 0 else "15"] = True
+    harness.online()
+    harness.admit(b'{"auto_off_seconds":27000}', zone)
+    harness.tick(8)
+    assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
+    assert harness.device.writes == [{dp: enum}]
+
+
+def test_preheat_for_a_side_that_is_off_is_written_as_requested(
+    harness: Harness,
+) -> None:
+    harness.online()
+    harness.admit(b'{"preheat":true}')
+    harness.tick(8)
+    assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
+    assert harness.device.writes == [{"24": True}]
 
 
 def test_fresh_push_confirms_without_polling(harness: Harness) -> None:
@@ -525,8 +617,7 @@ def test_delayed_matching_push_confirms_within_deadline(harness: Harness) -> Non
     harness.admit(b'{"power":true}')
     harness.tick(3)
     assert not harness.mailbox.drain_results()
-    harness.device.pushes.append({"14": True})
-    harness.tick()
+    harness.push({"14": True})
     assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
 
 
@@ -558,10 +649,7 @@ def test_execution_rechecks_request_metadata(kind: str, harness: Harness) -> Non
     assert not harness.device.writes
 
 
-def test_inflight_session_loss_stops_additional_steps(
-    harness_factory: Callable[..., Harness],
-) -> None:
-    harness = harness_factory(mode="level_before_power")
+def test_inflight_session_loss_leaves_the_write_unconfirmed(harness: Harness) -> None:
     harness.online()
     harness.admit(b'{"power":true,"heat_level":6}')
     harness.tick()
@@ -569,28 +657,26 @@ def test_inflight_session_loss_stops_additional_steps(
     harness.tick()
     result = harness.mailbox.drain_results()[0].result
     assert result.outcome is Outcome.UNCONFIRMED
-    assert harness.device.writes == [{"20": "level_6"}]
+    assert harness.device.writes == [{"14": True, "20": "level_6"}]
     assert harness.core.view.zones[0].heat_level == 6
-    assert harness.core.view.zones[0].power is False
+    assert harness.core.view.zones[0].power is True
 
 
-def test_partial_write_failure_has_no_rollback_or_replay(
-    harness_factory: Callable[..., Harness],
+def test_write_failure_is_unconfirmed_without_rollback_or_replay(
+    harness: Harness,
 ) -> None:
-    harness = harness_factory(mode="level_before_power")
     harness.online()
     harness.admit(b'{"power":true,"heat_level":6}')
-    harness.tick(2)
     harness.device.write_error = BridgeError(ErrorCode.CONNECTION_LOST, "lost")
     harness.tick()
     result = harness.mailbox.drain_results()[0].result
     assert result.outcome is Outcome.UNCONFIRMED
-    assert harness.device.writes == [{"20": "level_6"}, {"14": True}]
+    assert harness.device.writes == [{"14": True, "20": "level_6"}]
     harness.device.write_error = None
     harness.clock.advance(1)
     harness.tick()
     assert harness.core.view.zones[0].power is True
-    assert len(harness.device.writes) == 2
+    assert len(harness.device.writes) == 1
 
 
 def test_late_matching_report_does_not_change_terminal_result(harness: Harness) -> None:
@@ -603,8 +689,7 @@ def test_late_matching_report_does_not_change_terminal_result(harness: Harness) 
     result = harness.mailbox.drain_results()[0]
     assert result.result.outcome is Outcome.UNCONFIRMED
     harness.device.state["14"] = True
-    harness.device.pushes.append({"14": True})
-    harness.tick()
+    harness.push({"14": True})
     assert harness.core.view.zones[0].power is True
     assert harness.core.view.last_completion == result
     assert not harness.mailbox.drain_results()
@@ -695,8 +780,7 @@ def test_refresh_flood_cannot_starve_heartbeats(harness: Harness) -> None:
 def test_complete_push_refreshes_required_state_age(harness: Harness) -> None:
     harness.online()
     harness.clock.advance(5)
-    harness.device.pushes.append(BASELINE.copy())
-    harness.tick()
+    harness.push(BASELINE.copy())
     assert harness.core.view.last_full_status == harness.clock()
 
 
@@ -732,10 +816,9 @@ def test_disconnect_after_admission_before_first_write(harness: Harness) -> None
     assert harness.device.writes == []
 
 
-def test_deadline_between_steps_stops_writes_and_reads_back(
-    harness_factory: Callable[..., Harness],
+def test_deadline_during_the_write_is_unconfirmed_and_reads_back(
+    harness: Harness,
 ) -> None:
-    harness = harness_factory(mode="level_before_power")
     harness.online()
     harness.device.on_write = lambda: harness.clock.advance(8)
     harness.admit(b'{"power":true,"heat_level":6}')
@@ -743,8 +826,8 @@ def test_deadline_between_steps_stops_writes_and_reads_back(
     result = harness.mailbox.drain_results()[0].result
     assert result.outcome is Outcome.UNCONFIRMED
     assert result.error_code is ErrorCode.CONFIRMATION_TIMEOUT
-    assert harness.device.writes == [{"20": "level_6"}]
+    assert harness.device.writes == [{"14": True, "20": "level_6"}]
     harness.tick()
     assert harness.device.calls[-1][0] == "status"
     assert harness.core.view.zones[0].heat_level == 6
-    assert harness.core.view.zones[0].power is False
+    assert harness.core.view.zones[0].power is True

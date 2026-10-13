@@ -24,7 +24,7 @@ A new MQTT session invalidates queued/pending work and the usable baseline. The
 owner closes the existing connection and establishes a fresh device generation,
 discarding buffered reports from the prior session before synchronization. A
 write already in progress may have taken effect; its result is unconfirmed, and
-no later step is issued.
+it is not replayed.
 
 ## Commands and maintenance
 
@@ -40,7 +40,7 @@ complete request. Empty ACKs and a prior cached match do not confirm it. An
 unconfirmed request schedules state readback without rollback or replay; late
 reports update state while preserving the terminal result.
 
-The worker processes reports between write steps and prioritizes scheduled
+The worker processes reports after each write and prioritizes scheduled
 heartbeats before refresh requests. Heartbeats run every 10 seconds, full status
 queries every 30 seconds, and required state becomes stale after 90 seconds
 without refresh. Reconnect backoff doubles from one to 60 seconds, with up to
@@ -51,11 +51,19 @@ synchronization succeeds.
 
 Controller configuration adds `write_mode`:
 
-| Value                | Behavior                                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `disabled`           | Default; report state and reject writes with `write_disabled`.                                                                 |
-| `multi_dp`           | Send the entire validated command in one packet through the qualified adapter.                                                 |
-| `level_before_power` | Write individual DPs in heat-level, timer, power, and preheat order, skipping absent fields. Preheat commands remain separate. |
+| Value      | Behavior                                                                       |
+| ---------- | ------------------------------------------------------------------------------ |
+| `disabled` | Default; report state and reject writes with `write_disabled`.                 |
+| `multi_dp` | Send the entire validated command in one packet through the qualified adapter. |
+
+Hardware testing on the PP21KQ verified `multi_dp`, including power, timer, and
+level in one packet. Before writing, the worker decides from fresh state what to
+send. A level without power for a side that is off gains an explicit power-on
+ahead of the level, because the firmware powers a side on for any level write
+and only an explicit power write starts the presence-confirmation window. A
+timer alone for a side that is off is rejected with `zone_off`, because the
+firmware ignores it. Confirmation checks the command as extended, so the
+reported power must match as well.
 
 Selecting a mode asserts the write behavior being qualified on that controller.
 Production use requires the hardware record to verify the chosen mode, each
@@ -74,7 +82,7 @@ offline states with error logs and bounded retries.
 
 The deterministic suite uses fake time for deadlines, freshness, backoff, and
 maintenance. TCP cases run the real adapter/worker on protocols 3.3, 3.4, and
-3.5; count decoded writes through partial failure and reconnect; exercise
+3.5; count decoded writes through a write failure and reconnect; exercise
 physical pushes; and show that stalled negotiation on one controller does not
 block another. Stalled-negotiation shutdown also runs with the production
 two-second socket timeouts.

@@ -14,7 +14,7 @@ MIN_LEVEL = 1
 MAX_LEVEL = 10
 # Beyond this, adjacent integers share a float64 or a JavaScript number.
 MAX_SAFE_INTEGER = 2**53 - 1
-TIMERS: Mapping[str, int] = MappingProxyType(
+_TIMER_SECONDS: Mapping[str, int] = MappingProxyType(
     {
         "30m": 1800,
         "1h": 3600,
@@ -39,6 +39,18 @@ TIMERS: Mapping[str, int] = MappingProxyType(
         "Stay_On": 86400,
     }
 )
+# Side A's firmware spells 7.5 hours "7h30". It rejects "7h30m" and then resets the
+# countdown to 24 hours, so each side needs its own spelling.
+TIMERS: tuple[Mapping[str, int], Mapping[str, int]] = (
+    MappingProxyType(
+        {
+            ("7h30" if name == "7h30m" else name): seconds
+            for name, seconds in _TIMER_SECONDS.items()
+        }
+    ),
+    _TIMER_SECONDS,
+)
+TIMER_SECONDS = frozenset(_TIMER_SECONDS.values())
 LEVELS: Mapping[str, int] = MappingProxyType(
     {f"level_{level}": level for level in range(MIN_LEVEL, MAX_LEVEL + 1)}
 )
@@ -50,12 +62,10 @@ DP_MAP = (
 )
 REQUIRED_DPS = tuple(dict.fromkeys(dp for zone in DP_MAP for dp in zone))
 WRITABLE = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT, Field.AUTO_OFF_SECONDS)
-type WriteMode = Literal["disabled", "multi_dp", "level_before_power"]
+type WriteMode = Literal["disabled", "multi_dp"]
 
 
-def write_steps(
-    command: Command, zone: int, mode: WriteMode
-) -> tuple[dict[str, Value | str], ...]:
+def write_dps(command: Command, zone: int, mode: WriteMode) -> dict[str, Value | str]:
     if mode == "disabled":
         raise BridgeError(ErrorCode.WRITE_DISABLED, "controller writes are disabled")
     fields = [field for field, _value in command.values]
@@ -67,16 +77,10 @@ def write_steps(
             for field, value in command.values
         )
         or (Field.PREHEAT in fields and len(fields) != 1)
+        or ((Field.POWER, False) in command.values and len(fields) != 1)
     ):
         raise BridgeError(ErrorCode.INVALID_COMMAND, "invalid command values")
-    encoded = encode_command(command, zone)
-    if mode == "multi_dp":
-        return (encoded,)
-    mapping = dict(zip(Field, DP_MAP[zone], strict=True))
-    order = (Field.HEAT_LEVEL, Field.AUTO_OFF_SECONDS, Field.POWER, Field.PREHEAT)
-    return tuple(
-        {mapping[field]: encoded[mapping[field]]} for field in order if field in fields
-    )
+    return encode_command(command, zone)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,13 +89,13 @@ class ZoneReport:
     invalid_fields: tuple[Field, ...]
 
 
-def _decode_field(field: Field, raw: object) -> Value | None:
+def _decode_field(field: Field, raw: object, zone: int) -> Value | None:
     if field in (Field.POWER, Field.PREHEAT):
         return raw if type(raw) is bool else None
     if field is Field.HEAT_LEVEL:
         return LEVELS.get(raw) if isinstance(raw, str) else None
     if field is Field.AUTO_OFF_SECONDS:
-        return TIMERS.get(raw) if isinstance(raw, str) else None
+        return TIMERS[zone].get(raw) if isinstance(raw, str) else None
     return raw if type(raw) is int and 0 <= raw <= MAX_SAFE_INTEGER else None
 
 
@@ -100,7 +104,7 @@ def decode_report(dps: Mapping[str, object], zone: int) -> ZoneReport:
     invalid: list[Field] = []
     for field, dp in zip(Field, DP_MAP[zone], strict=True):
         if dp in dps:
-            value = _decode_field(field, dps[dp])
+            value = _decode_field(field, dps[dp], zone)
             updates.append((field, value))
             if value is None:
                 invalid.append(field)
@@ -112,7 +116,7 @@ def _valid_value(field: Field, value: object) -> bool:
         return type(value) is bool
     if field is Field.HEAT_LEVEL:
         return type(value) is int and MIN_LEVEL <= value <= MAX_LEVEL
-    return type(value) is int and value in TIMERS.values()
+    return type(value) is int and value in TIMER_SECONDS
 
 
 def parse_command(payload: bytes, *, generated_id: str | None = None) -> Command:
@@ -144,7 +148,13 @@ def parse_command(payload: bytes, *, generated_id: str | None = None) -> Command
             if not _valid_value(field, value):
                 raise BridgeError(ErrorCode.INVALID_COMMAND, "invalid command value")
             values.append((field, value))
-    if not values or (Field.PREHEAT in data and len(values) != 1):
+    # The firmware turns a side on when a level is written, even in the same
+    # packet as power off, so power off must stand alone.
+    if (
+        not values
+        or (Field.PREHEAT in data and len(values) != 1)
+        or (data.get(Field.POWER) is False and len(values) != 1)
+    ):
         raise BridgeError(ErrorCode.INVALID_COMMAND, "unsupported command combination")
     return Command(request_id, tuple(values))
 
@@ -156,7 +166,9 @@ def encode_command(command: Command, zone: int) -> dict[str, Value | str]:
         if field is Field.HEAT_LEVEL:
             encoded: Value | str = f"level_{value}"
         elif field is Field.AUTO_OFF_SECONDS:
-            encoded = next(enum for enum, seconds in TIMERS.items() if seconds == value)
+            encoded = next(
+                enum for enum, seconds in TIMERS[zone].items() if seconds == value
+            )
         else:
             encoded = value
         result[mapping[field]] = encoded

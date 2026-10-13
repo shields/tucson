@@ -1,9 +1,10 @@
 # Hardware acceptance
 
 Status: in progress. Read-only observations and physical-control tests from
-2026-10-12 are recorded below. The bridge has sent no write to the controller
-(only the Smart Life app and the physical controls changed its state), so
-production compatibility remains unproven until this record is complete.
+2026-10-12, and power, level, timer, and preheat writes through the adapter on
+2026-10-13, are recorded below. The bridge daemon has not yet run a command
+against the controller, so production compatibility remains unproven until this
+record is complete.
 
 ## Available evidence
 
@@ -27,7 +28,9 @@ The candidate DP map and timer enum table come from
 [tuya-local’s Sunbeam definition](https://github.com/make-all/tuya-local/blob/main/custom_components/tuya_local/devices/sunbeam_dual_bedwarmer.yaml).
 The read-only observations below agree with it for every mapped field, and the
 controller reports `Stay_On` as 86,400 seconds, consistent with the manual’s
-24-hour setting. Writes remain unverified.
+24-hour setting. Writes through the adapter are recorded under
+[Write behavior](#write-behavior); no command has yet run through the bridge
+daemon.
 
 Tuya’s cloud data model for this controller (the “thing model” returned by
 `/v2.0/cloud/thing/<device id>/model` through TinyTuya’s `Cloud` class) declares
@@ -36,8 +39,7 @@ more than the standard instruction set that TinyTuya’s wizard saves:
 - DP 13 is a read-only bitmap of 13 bits, labeled `e1` through `e13`.
 - DPs 26 and 27 are enums of 21 values: 30 minutes to 10 hours in 30-minute
   steps, plus `Stay_On`. Side A’s list spells 7.5 hours `7h30`, while side B’s
-  spells it `7h30m`; the profile knows only `7h30m`, so the real spelling needs
-  a hardware check.
+  spells it `7h30m`. Hardware writes confirmed both spellings.
 - DPs 28 and 29 accept 0 to 86,400 seconds and are declared read-write. DPs 102
   and 103 are read-only, 0 to 1,800 seconds.
 - DP 101, `Schedule`, is a raw read-write value of up to 128 bytes. It holds the
@@ -68,12 +70,12 @@ more than the standard instruction set that TinyTuya’s wizard saves:
 | 14, 15   | Power, side A and B   | Boolean.                                                                                                                                                                                                                            |
 | 20, 21   | Heat level, A and B   | `level_1` (the idle setting), `level_3`, `level_4` (after the one-hour presence rule), `level_5`, and `level_10` (during preheat); levels 3 and 5 set on the controller reported `level_3` and `level_5`.                           |
 | 24, 25   | Preheat, A and B      | Boolean.                                                                                                                                                                                                                            |
-| 26, 27   | Auto-off, A and B     | `10h` by default; side A also reported `30m`, `1h30m`, `5h`, and `Stay_On` after changes in the app. The `7h30` spelling is unverified.                                                                                             |
+| 26, 27   | Auto-off, A and B     | `10h` by default. Writes verified all 21 values on both sides; side A spells 7.5 hours `7h30` and side B `7h30m`.                                                                                                                   |
 | 28, 29   | Remaining seconds     | Resets to the selected duration when the timer changes, then falls by 60 once a minute while the side is on (36,000, 35,940, …).                                                                                                    |
 | 102, 103 | Preheat remaining     | 1,800 when preheat starts and 0 when it ends.                                                                                                                                                                                       |
 | 1, 4, 8  | Combined controls     | DPs 1 and 8 followed the selected zone’s power and preheat; DP 4 did not change when only the selected zone changed. Not used.                                                                                                      |
 | 13       | Fault bitmap          | 13 bits with no known meanings; 0 throughout. Reported as `fault_code`.                                                                                                                                                             |
-| 104      | Presence confirmation | `User_Confirmation` while idle. After side A was turned on from the app it stepped through `45_Minutes_Before`, `15_Minutes_Left`, and `One_Hour_Later` (see below); it has not yet been observed returning to `User_Confirmation`. |
+| 104      | Presence confirmation | `User_Confirmation` while idle. Turning side A on from the app stepped it through `45_Minutes_Before`, `15_Minutes_Left`, and `One_Hour_Later` (see below); the check button and a LAN power-off both restored `User_Confirmation`. |
 | 105      | Selected zone         | `ZONE_A` or `ZONE_B`, following the side most recently operated on the controller or in the app.                                                                                                                                    |
 
 The profile does not use DPs 1, 4, 8, 104, or 105. DP 13 is published as
@@ -105,9 +107,40 @@ from the app at 21:35:34. The check button on the controller was not pressed.
 
 Side B was off and had not been activated remotely, yet its stored level was
 lowered as well. The cap applies to every zone’s selected level, and the
-controller reports it as ordinary state with no separate flag. Whether a write
-over the LAN counts as remote activation, how pressing the check button changes
-DP 104, and whether higher levels can be selected afterwards are not yet known.
+controller reports it as ordinary state with no separate flag. Pressing the
+check button returned DP 104 to `User_Confirmation`, after which level 6 could
+be set. An explicit power write over the LAN also starts the window; a level or
+preheat write that turns a side on starts none, and whether the cap then applies
+is pending (see [Write behavior](#write-behavior)).
+
+### Write behavior
+
+On 2026-10-13 a scratch script wrote through the adapter’s `write` method, with
+the side being tested on for a few seconds at low levels, preheat cancelled
+immediately, and both sides off at the end. Writes were acknowledged by
+unsolicited reports within about 0.3 seconds.
+
+- **Timers:** all 21 values were echoed with the matching remaining time on both
+  sides, with `Stay_On` at 86,400 seconds. Side A accepts `7h30` and rejects
+  `7h30m`, and side B accepts `7h30m`.
+- **An unrecognized timer value is hazardous.** Writing `7h30m` to side A left
+  its setting unchanged and set the remaining time to 86,400 seconds. A valid
+  write restored it.
+- **A timer for a side that is off is ignored,** with no report. A single packet
+  with power, timer, and level applied all three, as did power followed by the
+  timer. Turning a side off resets its timer setting to `10h`.
+- **The remaining time is derived from the setting.** Writing 15 seconds was
+  echoed, but the next once-a-minute tick restored the setting minus 60 seconds
+  and the side stayed on, so arbitrary durations are not possible.
+- **A level write turns a side on,** even in the same packet as power off. Power
+  off alone turns it off, and the selected level survives.
+- **Preheat** behaves as it does from the controller. Starting it on a side that
+  is off turns the side on at level 10.
+- **The presence window starts on an explicit power write.** Writing power on
+  over the LAN set DP 104 to `45_Minutes_Before`, and power off returned it to
+  `User_Confirmation`. Turning a side on through a level or preheat write
+  started no window; whether the level cap then still applies after an hour has
+  not been tested.
 
 ## Qualification record
 
@@ -116,21 +149,21 @@ zone orientation, bridge revision, Python/TinyTuya versions, and network
 conditions. Sanitized fixtures must include this provenance and omit
 device/account identifiers and real local keys.
 
-| Requirement                                                               | Result                                                                                                                                                                                  |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Device identity, firmware, and local protocol                             | Verified: style PP21KQ, main module V2.1.6, MCU module V1.0.10, protocol 3.3                                                                                                            |
-| A/B orientation and required reported fields                              | Partial: required fields are reported, and the controller’s A and B map to the A and B DPs. The manual puts A on the left of the bed; that is not yet checked against the physical bed. |
-| Power and all 10 levels independently on each side                        | Partial: power verified on both sides from the controller; levels 3 and 5 observed on A and level 5 on B, with level 1 as the idle setting. The full sweep needs writes.                |
-| Every supported timer enum and `Stay_On` duration                         | Partial: side A reported `30m`, `1h30m`, `5h`, `Stay_On` (86,400 seconds), and `10h` from the app. The full list, including the `7h30` spelling on side A, needs writes.                |
-| Level selection without implicit bridge power-on                          | Pending                                                                                                                                                                                 |
-| Power-off/on preserves the selected level                                 | Partial: turning a side off at the controller preserved its level. Power-on from the bridge is pending.                                                                                 |
-| Verified individual-write ordering or multi-DP behavior                   | Pending                                                                                                                                                                                 |
-| Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified on both sides, with the level reported as 10 during preheat. Completion is pending.                                                       |
-| Physical controls reflected in reported state                             | Verified for power, heat level, and preheat on both sides                                                                                                                               |
-| Timer expiry and remote presence-confirmation behavior                    | Partial: after an app activation, the one-hour rule lowered level 5 to level 4 on both zones. Pressing the check button, LAN-write activation, and timer expiry are pending.            |
-| Cold boot, Wi-Fi, bridge, and broker interruption/recovery                | Pending                                                                                                                                                                                 |
-| Home/Siri controls, inactive speed display, errors, and recovery          | Pending                                                                                                                                                                                 |
-| Seven consecutive days with controller and bridge Internet access blocked | Pending                                                                                                                                                                                 |
+| Requirement                                                               | Result                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Device identity, firmware, and local protocol                             | Verified: style PP21KQ, main module V2.1.6, MCU module V1.0.10, protocol 3.3                                                                                                                                                                                                                                                                                                                   |
+| A/B orientation and required reported fields                              | Partial: required fields are reported, and the controller’s A and B map to the A and B DPs. The manual puts A on the left of the bed; that is not yet checked against the physical bed.                                                                                                                                                                                                        |
+| Power and all 10 levels independently on each side                        | Partial: power verified on both sides from the controller and the adapter; levels 2, 3, 4, and 6 were written and read back. The full sweep of all 10 levels is pending.                                                                                                                                                                                                                       |
+| Every supported timer enum and `Stay_On` duration                         | Verified: all 21 values were echoed with the matching remaining time on both sides, including `Stay_On` at 86,400 seconds. Side A spells 7.5 hours `7h30` and side B `7h30m`; an unrecognized value is ignored and resets the remaining time to 86,400 seconds.                                                                                                                                |
+| Level selection for a side that is off                                    | Verified: the firmware turns a side on when a level is written, even with power off in the same packet, so a level cannot be selected while a side stays off. The worker therefore sends a level for a side that is off with an explicit power-on.                                                                                                                                             |
+| Power-off/on preserves the selected level                                 | Verified: power off from the adapter kept the level, and power on alone resumed at it.                                                                                                                                                                                                                                                                                                         |
+| Verified individual-write ordering or multi-DP behavior                   | Verified: `multi_dp` applies power, timer, and level in one packet. A timer must accompany or follow power because the firmware ignores it for a side that is off, and a level write turns the side on.                                                                                                                                                                                        |
+| Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified from the controller and the adapter, with level 10 and 1,800 seconds while active. Preheat on a side that is off turns it on at level 10. Completion is pending.                                                                                                                                                                                 |
+| Physical controls reflected in reported state                             | Verified for power, heat level, and preheat on both sides                                                                                                                                                                                                                                                                                                                                      |
+| Timer expiry and remote presence-confirmation behavior                    | Partial: after an app activation, the one-hour rule lowered level 5 to level 4 on both zones, and pressing the check button returned DP 104 to `User_Confirmation`, after which level 6 could be set. An explicit power write over the LAN also starts the window. A level or preheat write that turns a side on starts none, and whether the cap then applies is pending, as is timer expiry. |
+| Cold boot, Wi-Fi, bridge, and broker interruption/recovery                | Pending                                                                                                                                                                                                                                                                                                                                                                                        |
+| Home/Siri controls, inactive speed display, errors, and recovery          | Pending                                                                                                                                                                                                                                                                                                                                                                                        |
+| Seven consecutive days with controller and bridge Internet access blocked | Pending                                                                                                                                                                                                                                                                                                                                                                                        |
 
 For the soak, record start/end times, LAN firewall rules, interruptions
 exercised, physical setting changes during outages, synchronization after

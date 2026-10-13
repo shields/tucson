@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from .domain import BridgeError, ErrorCode
 from .json_codec import InvalidJSONError, decode
+lazy from .profiles.sunbeam import WriteMode
 
 LOCAL_KEY_BYTES = 16
 
@@ -94,7 +95,7 @@ class ControllerConfig(StrictModel):
     local_key: SecretReference
     profile: Literal["sunbeam-dual"]
     zones: tuple[Name, Name]
-    write_mode: Literal["disabled", "multi_dp", "level_before_power"] = "disabled"
+    write_mode: WriteMode = "disabled"
 
     @model_validator(mode="after")
     def check_identity(self) -> Self:

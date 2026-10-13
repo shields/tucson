@@ -22,7 +22,7 @@ from .domain import (
     Value,
     ZoneState,
 )
-from .profiles.sunbeam import DP_MAP, decode_report, write_steps
+from .profiles.sunbeam import DP_MAP, decode_report, write_dps
 lazy from .config import ControllerConfig
 lazy from .tuya_client import DeviceClient
 
@@ -142,9 +142,9 @@ class Mailbox:
 @dataclass(slots=True)
 class Pending:
     request: Request
-    steps: tuple[dict[str, Value | str], ...]
+    command: Command
+    dps: dict[str, Value | str]
     written: bool = False
-    next_step: int = 0
     confirmation: ZoneState = field(default_factory=ZoneState)
     next_query: float = 0
 
@@ -364,6 +364,21 @@ class ControllerCore:
             return ErrorCode.COMPATIBILITY
         return None
 
+    def _effective_command(self, request: Request) -> Command:
+        # The firmware turns a side on when a level is written, and only an explicit
+        # power write starts the presence-confirmation window, so a level for a side
+        # that is off is sent with power on, ahead of the level. It ignores a timer
+        # for a side that is off.
+        command = request.command
+        fields = {field for field, _value in command.values}
+        if self.view.zones[request.zone].power is not False or Field.POWER in fields:
+            return command
+        if Field.HEAT_LEVEL in fields:
+            return Command(command.request_id, ((Field.POWER, True), *command.values))
+        if Field.AUTO_OFF_SECONDS in fields:
+            raise BridgeError(ErrorCode.ZONE_OFF, "timer for a side that is off")
+        return command
+
     def _command_step(self, device: DeviceClient) -> None:
         pending = self._pending
         if pending is None:
@@ -378,13 +393,12 @@ class ControllerCore:
                 self._finish(request, Outcome.REJECTED, error)
                 return
             try:
-                steps = write_steps(
-                    request.command, request.zone, self.config.write_mode
-                )
+                command = self._effective_command(request)
+                dps = write_dps(command, request.zone, self.config.write_mode)
             except BridgeError as error:
                 self._finish(request, Outcome.REJECTED, error.code)
                 return
-            pending = Pending(request, steps)
+            pending = Pending(request, command, dps)
             self._pending = pending
             self._publish(active=request)
         error = self._guard(pending.request, started=pending.written)
@@ -396,14 +410,12 @@ class ControllerCore:
                 error,
             )
             return
-        if pending.next_step < len(pending.steps):
+        if not pending.written:
             pending.written = True
-            pending.confirmation = ZoneState()
-            device.write(pending.steps[pending.next_step])
-            pending.next_step += 1
+            device.write(pending.dps)
             self._need_receive = True
             return
-        if pending.request.command.matches(pending.confirmation):
+        if pending.command.matches(pending.confirmation):
             self._pending = None
             self._finish(pending.request, Outcome.CONFIRMED)
             return
@@ -421,7 +433,7 @@ class ControllerCore:
             self._finish(
                 pending.request, Outcome.UNCONFIRMED, ErrorCode.CONFIRMATION_TIMEOUT
             )
-        elif pending.request.command.matches(pending.confirmation):
+        elif pending.command.matches(pending.confirmation):
             self._pending = None
             self._finish(pending.request, Outcome.CONFIRMED)
 

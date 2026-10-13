@@ -14,6 +14,7 @@ class ErrorCode(StrEnum):
     CONFIRMATION_TIMEOUT = "confirmation_timeout"
     DEVICE_ERROR = "device_error"
     STALE = "stale"
+    ZONE_OFF = "zone_off"
     WRITE_DISABLED = "write_disabled"
     MQTT_ERROR = "mqtt_error"
     RETAINED_COMMAND = "retained_command"

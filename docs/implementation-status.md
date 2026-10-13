@@ -6,13 +6,13 @@ changing its requirements.
 
 | Phase                                   | Current evidence                                                                                                                                                                                                                                                                      | Remaining                                                       |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Controller and dependency qualification | Supplied manual reviewed; [TCP qualification](adapter-qualification.md) with decoded write counts on Python 3.15.0/TinyTuya 1.20.0; [pairing runbook](setup.md); [read-only hardware observations](hardware-acceptance.md) of identity, protocol 3.3, the DP map, timers, and preheat | Write behavior and ordering, deployed MQTT 5 qualification      |
+| Controller and dependency qualification | Supplied manual reviewed; [TCP qualification](adapter-qualification.md) with decoded write counts on Python 3.15.0/TinyTuya 1.20.0; [pairing runbook](setup.md); [hardware record](hardware-acceptance.md) of identity, protocol 3.3, the DP map, timers, preheat, and write behavior | Commands run by the daemon, deployed MQTT 5 qualification       |
 | Foundation and profile                  | Frozen strict JSON configuration with secret references; typed state/command/result model; candidate dual-zone conversion; validation/inspection CLI; locked dependencies; Make, Lefthook, lint/types, and 100% line/branch coverage                                                  | Measured hardware capabilities                                  |
 | Controller worker                       | [Owner thread and state machine](controller-worker.md), bounded request/result admission, generation/session baselines, maintenance, confirmation, reconnects, and fatal shutdown/failure boundaries; deterministic and real-adapter TCP cases pass                                   | Measured hardware capabilities                                  |
-| MQTT bridge                             | Run CLI, MQTT 5/session/command/snapshot coordination, 31 deterministic bridge cases, and 10 real-Mosquitto/controller process cases including broker persistence, command replay prevention, independent controller faults, and shutdown                                             | Deployed-broker qualification                                   |
+| MQTT bridge                             | Run CLI, MQTT 5/session/command/snapshot coordination, 32 deterministic bridge cases, and 10 real-Mosquitto/controller process cases including broker persistence, command replay prevention, independent controller faults, and shutdown                                             | Deployed-broker qualification                                   |
 | Operations and release                  | JSON logging/redaction, signals, metrics, HTTP/SSE/status supervision; pinned non-root Distroless images, per-platform smoke cases, artifact promotion/immutable-tag guards, same-revision CI release dependencies, Renovate, and deployment/troubleshooting guides                   | Required container checks, Renovate installation                |
 | Hoboken                                 | Mattress source, accessories, MQTT 5 sessions, configuration, metrics/status, and combined qualification pushed through `f526fd1`; native CI passes; 792 tests pass in the pinned screenshot image, 20 paired HAP/MQTT cases pass, and three complete controller-path cases pass      | Actual Home/Siri qualification                                  |
-| Offline acceptance                      | [Hardware record](hardware-acceptance.md) with read-only observations and explicit pending results                                                                                                                                                                                    | Functional matrix, failure recovery, and seven-day offline soak |
+| Offline acceptance                      | [Hardware record](hardware-acceptance.md) with observations, adapter write results, and explicit pending results                                                                                                                                                                      | Functional matrix, failure recovery, and seven-day offline soak |
 
 The
 [CI run for revision `301e0da`](https://github.com/shields/tucson/actions/runs/38293184929)
@@ -76,7 +76,6 @@ values and secret-file contents. Controller zones are ordered A then B; this
 records protocol side identifiers while physical orientation remains a
 qualification requirement.
 
-Writes default to disabled. The worker supports explicit multi-DP and individual
-level-before-power policies for qualification; production selection follows
-measured capabilities. The manual and candidate mapping do not establish
-hardware compatibility.
+Writes default to disabled. The worker sends each command as one multi-DP write
+once `write_mode` is `multi_dp`, which hardware testing verified on the PP21KQ.
+The manual and candidate mapping do not establish hardware compatibility.
