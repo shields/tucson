@@ -514,6 +514,28 @@ def test_level_for_a_side_that_is_off_is_sent_with_power_on(
     assert harness.core.view.zones[zone].power is True
 
 
+def test_the_packet_is_logged_before_it_is_written(harness: Harness) -> None:
+    harness.online()
+    before_write: list[list[str]] = []
+    harness.device.on_write = lambda: before_write.append(
+        [event[1] for event in harness.log.events]
+    )
+    harness.admit(b'{"request_id":"r","heat_level":6}')
+    harness.tick(8)
+    assert len(before_write) == 1
+    assert "command_write" in before_write[0]
+    assert (
+        "info",
+        "command_write",
+        {
+            "zone": "side_a",
+            "operation": "command",
+            "request_id": "r",
+            "dps": {"14": True, "20": "level_6"},
+        },
+    ) in harness.log.events
+
+
 def test_level_for_a_side_that_is_off_is_confirmed_only_once_power_is_reported(
     harness: Harness,
 ) -> None:

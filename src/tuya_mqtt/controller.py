@@ -411,6 +411,13 @@ class ControllerCore:
             )
             return
         if not pending.written:
+            self._log.info(
+                "command_write",
+                zone=self.config.zones[pending.request.zone],
+                operation="command",
+                request_id=pending.request.command.request_id,
+                dps=pending.dps,
+            )
             pending.written = True
             device.write(pending.dps)
             self._need_receive = True

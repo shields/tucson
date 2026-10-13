@@ -63,7 +63,9 @@ ahead of the level, because the firmware powers a side on for any level write
 and only an explicit power write starts the presence-confirmation window. A
 timer alone for a side that is off is rejected with `zone_off`, because the
 firmware ignores it. Confirmation checks the command as extended, so the
-reported power must match as well.
+reported power must match as well. The worker logs the exact packet as a
+`command_write` event just before sending it, since that can differ from the
+request.
 
 Selecting a mode asserts the write behavior being qualified on that controller.
 Production use requires the hardware record to verify the chosen mode, each
