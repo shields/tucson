@@ -130,6 +130,31 @@ def test_duplicate_controller(
         load_config(config_path, env=secret_env)
 
 
+def test_controllers_may_share_an_address_on_different_ports(
+    config_data: dict[str, Any], config_path: Path, secret_env: dict[str, str]
+) -> None:
+    original = config_data["controllers"][0]
+    config_data["controllers"].append(
+        original | {"name": "other", "device_id": "other", "port": 6669}
+    )
+    config_path.write_text(json.dumps(config_data))
+    controllers = load_config(config_path, env=secret_env).config.controllers
+    assert [controller.port for controller in controllers] == [6668, 6669]
+    assert len({controller.ip for controller in controllers}) == 1
+
+
+def test_duplicate_endpoint_with_explicit_default_port(
+    config_data: dict[str, Any], config_path: Path, secret_env: dict[str, str]
+) -> None:
+    original = config_data["controllers"][0]
+    config_data["controllers"].append(
+        original | {"name": "other", "device_id": "other", "port": 6668}
+    )
+    config_path.write_text(json.dumps(config_data))
+    with pytest.raises(BridgeError, match="invalid configuration"):
+        load_config(config_path, env=secret_env)
+
+
 @pytest.mark.parametrize("value", ["short", "é" * 16, "a" * 17])
 def test_invalid_local_key(
     value: str, config_path: Path, secret_env: dict[str, str]

@@ -122,7 +122,10 @@ class Config(StrictModel):
         for values in (
             [controller.name for controller in self.controllers],
             [controller.device_id for controller in self.controllers],
-            [str(ip_address(controller.ip)) for controller in self.controllers],
+            [
+                (str(ip_address(controller.ip)), controller.port)
+                for controller in self.controllers
+            ],
         ):
             if len(values) != len(set(values)):
                 message = "duplicate controller identity"

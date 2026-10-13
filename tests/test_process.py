@@ -104,8 +104,12 @@ async def test_process_commands_pushes_refresh_retained_state_and_shutdown(
                 {"14": True, "20": "level_6"},
                 {"15": True, "21": "level_8"},
             ]
-            assert observed.payload("tuya/bed/side_a")["heat_level"] == 6
-            assert observed.payload("tuya/bed/side_b")["heat_level"] == 8
+            await observed.wait(
+                lambda data: (
+                    data.payload("tuya/bed/side_a")["heat_level"] == 6
+                    and data.payload("tuya/bed/side_b")["heat_level"] == 8
+                )
+            )
             for zone, command, expected in (
                 ("side_a", '{"request_id":"level","heat_level":3}', {"20": "level_3"}),
                 ("side_a", '{"request_id":"preheat","preheat":true}', {"24": True}),
@@ -478,7 +482,6 @@ async def test_healthy_controller_serves_with_stalled_peer_and_shutdown_is_bound
     with MockDevice(
         local_key=secret_env["SUNBEAM_LOCAL_KEY"],
         version=stalled_version,
-        host="127.0.0.2",
         go_dark_after=0,
     ) as stalled:
         daemon = configure_process(
@@ -489,7 +492,6 @@ async def test_healthy_controller_serves_with_stalled_peer_and_shutdown_is_bound
             | {
                 "name": "stalled",
                 "device_id": "stalled-test",
-                "ip": "127.0.0.2",
                 "port": stalled.port,
                 "protocol_version": stalled_version,
             }

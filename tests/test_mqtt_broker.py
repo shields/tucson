@@ -111,16 +111,25 @@ async def test_real_broker_restart_preserves_only_retained_data(
         "127.0.0.1", broker.port, protocol=aiomqtt.ProtocolVersion.V5
     ) as subscriber:
         await subscriber.subscribe("tuya/#", qos=1)
-        message = await asyncio.wait_for(anext(subscriber.messages), 3)
-        assert str(message.topic) == "tuya/bed/side_a"
-        assert json.loads(message.payload)["session_id"] == "old"
         async with Client(resolved, None) as current:
             await current.publish(
                 "tuya/bridge/heartbeat", '{"session_id":"new"}', qos=0, retain=False
             )
-            message = await asyncio.wait_for(anext(subscriber.messages), 3)
-            assert str(message.topic) == "tuya/bridge/heartbeat"
-            assert json.loads(message.payload)["session_id"] == "new"
+            received: list[aiomqtt.Message] = []
+            while not received or str(received[-1].topic) != "tuya/bridge/heartbeat":
+                received.append(await asyncio.wait_for(anext(subscriber.messages), 3))
+        *restored, heartbeat = received
+        assert json.loads(heartbeat.payload)["session_id"] == "new"
+        # The broker also retains the Last Will of a client it still considers
+        # connected when it stops.
+        assert {str(message.topic) for message in restored} <= {
+            "tuya/bed/side_a",
+            "tuya/bridge/availability",
+        }
+        states = [m for m in restored if str(m.topic) == "tuya/bed/side_a"]
+        assert len(states) == 1
+        assert states[0].retain
+        assert json.loads(states[0].payload)["session_id"] == "old"
 
 
 async def test_cancelled_connect_closes_a_socket_opened_later(

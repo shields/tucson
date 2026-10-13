@@ -5,11 +5,12 @@
 Pair the bedding with the Smart Life app (“SmartLife: Smart Living”) or the Tuya
 Smart app, not the Sunbeam app: TinyTuya’s wizard can link only devices
 registered in one of those two. A controller already paired in the Sunbeam app
-can be re-paired there. The new pairing issues a new local key, and the Sunbeam
-app then stops controlling it. Pairing requires a 2.4 GHz Wi-Fi network, and the
-manual’s AP pairing procedure is the fallback if automatic pairing fails.
-Pairing and initial local-key retrieval need the existing vendor/Tuya setup
-tools; the daemon has no cloud fallback or discovery loop.
+can be re-paired in Smart Life or Tuya Smart. The new pairing issues a new local
+key, and the Sunbeam app then stops controlling it. Pairing requires a 2.4 GHz
+Wi-Fi network, and the manual’s AP pairing procedure is the fallback if
+automatic pairing fails. Pairing and initial local-key retrieval need the
+existing vendor/Tuya setup tools; the daemon has no cloud fallback or discovery
+loop.
 
 Use TinyTuya’s interactive wizard in a private directory outside this
 repository. For example, create an owner-only setup directory, change to it, and
@@ -41,7 +42,8 @@ zones in A/B order. The example protocol, 3.3, matches the one observed on the
 Sunbeam PP21KQ controller; confirm it for any other device. Each controller has
 one connection owner, even when it has two zones. Run only one bridge instance
 for that set of controllers. Each controller’s optional TCP `port` defaults
-to 6668.
+to 6668. Every address and port pair must be unique, so two controllers can
+share an address only on different ports.
 
 Use `{"env": "VARIABLE_NAME"}` or `{"file": "/mounted/secret"}` for each local
 key and MQTT password. A local key must be exactly 16 ASCII bytes. Secret files
