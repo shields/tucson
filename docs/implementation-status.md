@@ -4,18 +4,18 @@ The [implementation plan](implementation-plan.md) remains the acceptance
 contract. This file records implementation evidence and remaining work without
 changing its requirements.
 
-| Phase                                   | Current evidence                                                                                                                                                                                                                                                    | Remaining                                                            |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Controller and dependency qualification | Supplied manual reviewed; [TCP qualification](adapter-qualification.md) with decoded write counts on Python 3.15.0/TinyTuya 1.20.0; [pairing runbook](setup.md)                                                                                                     | Actual hardware identity/protocol/map, deployed MQTT 5 qualification |
-| Foundation and profile                  | Frozen strict JSON configuration with secret references; typed state/command/result model; candidate dual-zone conversion; validation/inspection CLI; locked dependencies; Make, Lefthook, lint/types, and 100% line/branch coverage                                | Measured hardware capabilities                                       |
-| Controller worker                       | [Owner thread and state machine](controller-worker.md), bounded request/result admission, generation/session baselines, maintenance, confirmation, reconnects, and fatal shutdown/failure boundaries; deterministic and real-adapter TCP cases pass                 | Measured hardware capabilities                                       |
-| MQTT bridge                             | Run CLI, MQTT 5/session/command/snapshot coordination, 31 deterministic bridge cases, and 10 real-Mosquitto/controller process cases including broker persistence, command replay prevention, independent controller faults, and shutdown                           | Deployed-broker qualification                                        |
-| Operations and release                  | JSON logging/redaction, signals, metrics, HTTP/SSE/status supervision; pinned non-root Distroless images, per-platform smoke cases, artifact promotion/immutable-tag guards, same-revision CI release dependencies, Renovate, and deployment/troubleshooting guides | Required container checks, Renovate installation                     |
-| Hoboken                                 | Mattress source, accessories, MQTT 5 sessions, configuration, metrics/status, and combined qualification committed through `f526fd1`; 792 tests pass in the pinned screenshot image, 20 paired HAP/MQTT cases pass, and three complete controller-path cases pass   | Push access and native CI; actual Home/Siri qualification            |
-| Offline acceptance                      | [Hardware record](hardware-acceptance.md) created with explicit pending results                                                                                                                                                                                     | Functional matrix, failure recovery, and seven-day offline soak      |
+| Phase                                   | Current evidence                                                                                                                                                                                                                                                                 | Remaining                                                            |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Controller and dependency qualification | Supplied manual reviewed; [TCP qualification](adapter-qualification.md) with decoded write counts on Python 3.15.0/TinyTuya 1.20.0; [pairing runbook](setup.md)                                                                                                                  | Actual hardware identity/protocol/map, deployed MQTT 5 qualification |
+| Foundation and profile                  | Frozen strict JSON configuration with secret references; typed state/command/result model; candidate dual-zone conversion; validation/inspection CLI; locked dependencies; Make, Lefthook, lint/types, and 100% line/branch coverage                                             | Measured hardware capabilities                                       |
+| Controller worker                       | [Owner thread and state machine](controller-worker.md), bounded request/result admission, generation/session baselines, maintenance, confirmation, reconnects, and fatal shutdown/failure boundaries; deterministic and real-adapter TCP cases pass                              | Measured hardware capabilities                                       |
+| MQTT bridge                             | Run CLI, MQTT 5/session/command/snapshot coordination, 31 deterministic bridge cases, and 10 real-Mosquitto/controller process cases including broker persistence, command replay prevention, independent controller faults, and shutdown                                        | Deployed-broker qualification                                        |
+| Operations and release                  | JSON logging/redaction, signals, metrics, HTTP/SSE/status supervision; pinned non-root Distroless images, per-platform smoke cases, artifact promotion/immutable-tag guards, same-revision CI release dependencies, Renovate, and deployment/troubleshooting guides              | Required container checks, Renovate installation                     |
+| Hoboken                                 | Mattress source, accessories, MQTT 5 sessions, configuration, metrics/status, and combined qualification pushed through `f526fd1`; native CI passes; 792 tests pass in the pinned screenshot image, 20 paired HAP/MQTT cases pass, and three complete controller-path cases pass | Actual Home/Siri qualification                                       |
+| Offline acceptance                      | [Hardware record](hardware-acceptance.md) created with explicit pending results                                                                                                                                                                                                  | Functional matrix, failure recovery, and seven-day offline soak      |
 
 The
-[CI run for revision `102ed5b`](https://github.com/shields/tucson/actions/runs/38274546779)
+[CI run for revision `301e0da`](https://github.com/shields/tucson/actions/runs/38293184929)
 passed lint, application coverage, integration, the full online workflow audit,
 and native amd64 and arm64 image builds and smoke tests. Image publication was
 skipped for this branch run, as required by the release policy.
@@ -26,9 +26,16 @@ verified through the repository API. The VM’s GitHub proxy rejects the ruleset
 update API as an unsupported operation; required container checks need an
 external update or proxy support.
 
-Hoboken's reviewed commits are on the local
-`task/f39d6bee-3dfc-4a1a-a8db-4e8b20ec9eb7/sunbeam-homekit` branch. Its Git
-remote still rejects pushes with HTTP 403; Tucson's task branch is pushed.
+Hoboken’s reviewed commits through `f526fd1` are pushed to the
+[`task/f39d6bee-3dfc-4a1a-a8db-4e8b20ec9eb7/sunbeam-homekit` branch](https://github.com/shields/hoboken/tree/task/f39d6bee-3dfc-4a1a-a8db-4e8b20ec9eb7/sunbeam-homekit).
+Tucson’s task branch is also pushed.
+
+The
+[Hoboken CI run for revision `f526fd1`](https://github.com/shields/hoboken/actions/runs/38338739162)
+passed lint, unit tests, paired HomeKit/MQTT integration, the screenshot test,
+and the production image build. The
+[workflow-security run](https://github.com/shields/hoboken/actions/runs/38338739105)
+also passed. Image publication was skipped for the branch run.
 
 Hoboken's integration suite is committed in `316e995`. Its nine mattress cases
 and the existing eleven WLED cases pass together on Node 24.21.0. The mattress
