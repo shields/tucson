@@ -147,16 +147,36 @@ async def test_process_commands_pushes_refresh_retained_state_and_shutdown(
             assert all(
                 secret not in json.dumps(diagnostic) for secret in secret_env.values()
             )
-            assert simulator.mock.push({"14": False, "24": True, "102": 90})
+            assert all(
+                observed.payload(f"tuya/bed/{zone}")["fault_code"] == 0
+                for zone in ("side_a", "side_b")
+            )
+            pushed = {"14": False, "24": True, "102": 90, "13": 8}
+            simulator.mock.dps.update(pushed)
+            assert simulator.mock.push(pushed)
             await observed.wait(
                 lambda data: (
                     data.payload("tuya/bed/side_a")["preheat_remaining_seconds"] == 90
+                    and data.payload("tuya/bed/side_b")["fault_code"] == 8
                 )
             )
             assert observed.payload("tuya/bed/side_a")["power"] is False
             assert (
                 observed.payload("tuya/bed/side_a")["preheat_remaining_seconds"] == 90
             )
+            assert observed.payload("tuya/bed/side_a")["fault_code"] == 8
+            fault_page = await http_snapshot(config_data)
+            assert fault_page["health"] == (200, {"healthy": True})
+            assert fault_page["readiness"] == (200, {"ready": True, "reasons": []})
+            assert observed.latest["tuya/bed/availability"].payload == b"online"
+            assert (
+                'tuya_mqtt_controller_fault_code{controller="bed"} 8.0'
+                in fault_page["metrics"]
+            )
+            assert [
+                zone["reported"]["fault_code"]
+                for zone in fault_page["data"]["controllers"][0]["zones"]
+            ] == [8, 8]
             before = observed.count("tuya/bed/side_b")
             await subscriber.publish("tuya/bed/side_b/get", b"", qos=0)
             await observed.wait(lambda data: data.count("tuya/bed/side_b") > before)

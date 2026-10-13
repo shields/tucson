@@ -46,6 +46,7 @@ class Field(StrEnum):
     AUTO_OFF_SECONDS = "auto_off_seconds"
     REMAINING_SECONDS = "remaining_seconds"
     PREHEAT_REMAINING_SECONDS = "preheat_remaining_seconds"
+    FAULT_CODE = "fault_code"
 
 
 type Value = bool | int
@@ -60,6 +61,7 @@ class ZoneState:
     auto_off_seconds: int | None = None
     remaining_seconds: int | None = None
     preheat_remaining_seconds: int | None = None
+    fault_code: int | None = None
 
     @property
     def usable(self) -> bool:

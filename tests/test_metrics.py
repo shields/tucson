@@ -5,7 +5,7 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from tuya_mqtt.bridge import Bridge, publication_failures
 from tuya_mqtt.config import load_config
-from tuya_mqtt.domain import ConnectionState, ErrorCode, Outcome
+from tuya_mqtt.domain import ConnectionState, ErrorCode, Outcome, ZoneState
 from tuya_mqtt.metrics import Metrics, age
 from tuya_mqtt.mqtt_client import MQTTFailureError, Operation
 
@@ -85,6 +85,26 @@ def test_metrics_follow_shared_state_and_bound_labels(
         samples(metrics)["tuya_mqtt_controller_connected", (("controller", "bed"),)]
         == 0
     )
+
+
+def test_fault_code_metric_is_absent_until_reported(
+    config_path: Path, secret_env: dict[str, str]
+) -> None:
+    resolved = load_config(config_path, env=secret_env)
+    clock = Clock(now=10)
+    worker = Worker(clock)
+    bridge = Bridge(resolved, (worker,), MQTT, clock=clock, logger=Log())
+    metrics = Metrics(bridge, resolved.local_keys)
+    key = ("tuya_mqtt_controller_fault_code", (("controller", "bed"),))
+    assert key not in samples(metrics)
+    worker.view = replace(
+        worker.view, zones=(ZoneState(fault_code=0), ZoneState(fault_code=0))
+    )
+    assert samples(metrics)[key] == 0
+    worker.view = replace(
+        worker.view, zones=(ZoneState(fault_code=12), ZoneState(fault_code=12))
+    )
+    assert samples(metrics)[key] == 12
 
 
 def test_ages_and_nested_publication_failures() -> None:

@@ -7,12 +7,9 @@ lazy from collections.abc import Iterator
 import pytest
 from tuyamock import MockDevice, Session
 
-from tuya_mqtt.profiles.sunbeam import REQUIRED_DPS
+from .controller_fakes import BASELINE
 
 KEY = "test-key-16-byte"
-BASELINE = dict(
-    zip(REQUIRED_DPS, [False, "level_4", False, "1h", 3600, 0] * 2, strict=True)
-)
 
 
 @dataclass

@@ -15,6 +15,7 @@ from tuya_mqtt.json_codec import InvalidJSONError, decode
 from tuya_mqtt.profiles.sunbeam import (
     DP_MAP,
     LEVELS,
+    REQUIRED_DPS,
     TIMERS,
     decode_report,
     encode_command,
@@ -50,7 +51,7 @@ def test_boolean_and_countdown_fields(zone: int, *, boolean: bool) -> None:
         dict(
             zip(
                 DP_MAP[zone],
-                [boolean, "level_4", boolean, "1h", 0, 86400],
+                [boolean, "level_4", boolean, "1h", 0, 86400, 5],
                 strict=True,
             )
         ),
@@ -60,6 +61,7 @@ def test_boolean_and_countdown_fields(zone: int, *, boolean: bool) -> None:
     assert state.usable
     assert state.remaining_seconds == 0
     assert state.preheat_remaining_seconds == 86400
+    assert state.fault_code == 5
     assert state.payload("session")["power"] is boolean
     assert state.payload("session")["heat_level"] == 4
     assert not report.invalid_fields
@@ -88,7 +90,15 @@ def test_boolean_and_countdown_fields(zone: int, *, boolean: bool) -> None:
         (4, True),
         (4, -1),
         (4, 1.0),
+        (4, 2**53),
         (5, "30"),
+        (5, 2**53),
+        (6, True),
+        (6, -1),
+        (6, 1.0),
+        (6, "1"),
+        (6, 2**53),
+        (6, 10**400),
     ],
 )
 def test_invalid_report_invalidates_only_affected_field(
@@ -102,6 +112,26 @@ def test_invalid_report_invalidates_only_affected_field(
     assert getattr(merged, field) is None
     if field != Field.POWER:
         assert merged.power is True
+
+
+@pytest.mark.parametrize("zone", [0, 1])
+@pytest.mark.parametrize("fault_code", [0, 1, 0b1_0000_0000_0001, 2**32, 2**53 - 1])
+def test_fault_code_is_reported_opaquely_for_both_zones(
+    zone: int, fault_code: int
+) -> None:
+    report = decode_report({"13": fault_code}, zone)
+    assert report.updates == ((Field.FAULT_CODE, fault_code),)
+    assert not report.invalid_fields
+    state = ZoneState().merge(report.updates)
+    assert state.fault_code == fault_code
+    assert state.payload("session")["fault_code"] == fault_code
+    assert not state.usable
+
+
+def test_fault_dp_is_requested_once_for_both_zones() -> None:
+    assert DP_MAP[0][-1] == DP_MAP[1][-1] == "13"
+    assert REQUIRED_DPS.count("13") == 1
+    assert len(REQUIRED_DPS) == len(set(REQUIRED_DPS))
 
 
 def test_partial_merges_and_unknown_fields() -> None:
@@ -142,6 +172,7 @@ def test_partial_merges_and_unknown_fields() -> None:
         b'{"auto_off_seconds":true}',
         b'{"auto_off_seconds":1}',
         b'{"remaining_seconds":0}',
+        b'{"fault_code":3600}',
         b'{"other":true}',
         b'{"request_id":"only"}',
         b'{"request_id":null,"power":true}',

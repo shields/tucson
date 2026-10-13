@@ -105,6 +105,18 @@ def test_public_controls_and_send_only_write(
     assert raw.closed == 1
 
 
+@pytest.mark.parametrize(("missing", "queries"), [("13", 1), ("28", 2)])
+def test_only_the_fault_dp_may_be_missing_from_a_complete_status(
+    fake_adapter: tuple[TinyTuyaClient, RawFake], missing: str, queries: int
+) -> None:
+    client, raw = fake_adapter
+    report = {dp: 0 for dp in REQUIRED_DPS if dp != missing}
+    raw.response = {"dps": report}
+    assert client.connect() == report
+    assert [name for name, _value in raw.calls].count("status") == queries
+    assert raw.calls.count(("request_dps", dict.fromkeys(REQUIRED_DPS))) == queries
+
+
 def test_unavailable_and_new_device_connection(
     fake_adapter: tuple[TinyTuyaClient, RawFake],
 ) -> None:

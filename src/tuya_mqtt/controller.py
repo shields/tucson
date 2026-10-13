@@ -38,6 +38,8 @@ MAX_BACKOFF = 60.0
 IDLE_SLICE = 0.25
 CONFIRMATION_POLL_INTERVAL = 1.0
 REQUIRED_FIELDS = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT)
+# Only the required fields gate a full status, so optional DPs such as the fault
+# bitmap may be absent.
 REQUIRED_BASELINE = frozenset(
     dp
     for zone in DP_MAP
@@ -177,6 +179,9 @@ class ControllerCore:
         self._next_heartbeat = 0.0
         self._baseline_started = clock()
         self._need_receive = False
+        # The view is blanked on every reconnect and session change, so change
+        # detection keeps its own last valid fault code.
+        self._fault: int | None = None
         self.mailbox.publish(self.view)
 
     def _publish(self, **changes: object) -> None:
@@ -277,6 +282,24 @@ class ControllerCore:
             last_traffic=None,
         )
 
+    def _log_fault(self, fault: int | None) -> None:
+        if fault is None or fault == self._fault:
+            return
+        previous, self._fault = self._fault, fault
+        if fault:
+            event, log = "controller_fault", self._log.error
+        elif previous:
+            event, log = "controller_fault_cleared", self._log.info
+        else:
+            return
+        log(
+            event,
+            operation="report",
+            fault_code=fault,
+            previous_fault_code=previous,
+            generation=self.view.generation,
+        )
+
     def _report(self, dps: dict[str, object]) -> None:
         now = self._clock()
         reports = (decode_report(dps, 0), decode_report(dps, 1))
@@ -293,6 +316,7 @@ class ControllerCore:
             for index, report in enumerate(reports)
         )
         error = ErrorCode.COMPATIBILITY if any(invalid) else None
+        self._log_fault(zones[0].fault_code)
         self._publish(
             zones=(zones[0], zones[1]),
             invalid_fields=(frozenset(invalid[0]), frozenset(invalid[1])),

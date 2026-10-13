@@ -142,6 +142,17 @@ on the actual controller:
 | `auto_off_seconds`          | 26        | 27        | Explicit lookup table of supported timer enums |
 | `remaining_seconds`         | 28        | 29        | Nonnegative seconds; read-only                 |
 | `preheat_remaining_seconds` | 102       | 103       | Nonnegative seconds; read-only                 |
+| `fault_code`                | 13        | 13        | Nonnegative bitmap; read-only; shared          |
+
+DP 13 is one controller-wide fault bitmap, so both zone snapshots carry the same
+`fault_code`. The meaning of its bits is unknown: Tuya’s schema labels 13 bits
+`e1` through `e13` and nothing more. Publish the value as reported, log a
+nonzero value when it is first reported or changes, log its return to zero, and
+export it as a metric, but do not let it alter availability, readiness, or
+command admission until the bits are understood. A non-integer, negative, or
+larger-than-9,007,199,254,740,991 value is a compatibility error on this
+optional field, not a fault code, so neither JSON nor Prometheus loses precision
+or fails on it.
 
 The starting source is the
 [Sunbeam dual-zone definition](https://github.com/make-all/tuya-local/blob/main/custom_components/tuya_local/devices/sunbeam_dual_bedwarmer.yaml).
@@ -197,7 +208,8 @@ Use the same zone topics for `side_b`. Example state:
   "preheat": false,
   "auto_off_seconds": 3600,
   "remaining_seconds": 3520,
-  "preheat_remaining_seconds": 0
+  "preheat_remaining_seconds": 0,
+  "fault_code": 0
 }
 ```
 
@@ -404,10 +416,11 @@ is offline. Bind HTTP explicitly to the intended management interface.
 
 Metrics cover bridge/controller connectivity, last full-status age, reconnects,
 operation failures, command outcomes and latency, queue depth, MQTT publish
-failures, and event-loop/worker progress. Labels use configured controller and
-zone names plus bounded enums; request IDs and raw error text are not labels.
-The status page shows current state, stale-state age, connection status, pending
-work, last error, and versions. It does not become a second control interface.
+failures, the reported fault bitmap, and event-loop/worker progress. Labels use
+configured controller and zone names plus bounded enums; request IDs and raw
+error text are not labels. The status page shows current state, stale-state age,
+connection status, pending work, last error, and versions. It does not become a
+second control interface.
 
 ## Hoboken integration
 

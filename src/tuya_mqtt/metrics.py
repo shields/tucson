@@ -109,6 +109,11 @@ class Metrics:
                 ("controller_operation_failures", "Controller operation failures."),
             )
         }
+        faults = GaugeMetricFamily(
+            f"{PREFIX}_controller_fault_code",
+            "Reported controller fault bitmap; absent until reported.",
+            labels=["controller"],
+        )
         errors = GaugeMetricFamily(
             f"{PREFIX}_controller_error_info",
             "Last controller error code.",
@@ -151,6 +156,8 @@ class Metrics:
                 strict=True,
             ):
                 metric.add_metric([name], value)
+            if (fault := view.zones[0].fault_code) is not None:
+                faults.add_metric([name], fault)
             errors.add_metric(
                 [name, view.last_error.value if view.last_error else "none"], 1
             )
@@ -170,6 +177,7 @@ class Metrics:
             )
         yield from gauges.values()
         yield from counters.values()
+        yield faults
         yield errors
         yield durations
         yield outcomes

@@ -12,6 +12,8 @@ MAX_REQUEST_ID = 128
 MIN_PRINTABLE = 32
 MIN_LEVEL = 1
 MAX_LEVEL = 10
+# Beyond this, adjacent integers share a float64 or a JavaScript number.
+MAX_SAFE_INTEGER = 2**53 - 1
 TIMERS: Mapping[str, int] = MappingProxyType(
     {
         "30m": 1800,
@@ -40,11 +42,15 @@ TIMERS: Mapping[str, int] = MappingProxyType(
 LEVELS: Mapping[str, int] = MappingProxyType(
     {f"level_{level}": level for level in range(MIN_LEVEL, MAX_LEVEL + 1)}
 )
+# DP 13 is the controller-wide fault bitmap, so both zones report it.
+FAULT_DP = "13"
 DP_MAP = (
-    ("14", "20", "24", "26", "28", "102"),
-    ("15", "21", "25", "27", "29", "103"),
+    ("14", "20", "24", "26", "28", "102", FAULT_DP),
+    ("15", "21", "25", "27", "29", "103", FAULT_DP),
 )
-REQUIRED_DPS = tuple(dp for zone in DP_MAP for dp in zone)
+REQUIRED_DPS = tuple(dict.fromkeys(dp for zone in DP_MAP for dp in zone))
+# A controller that omits DP 13 would otherwise be queried twice on every connect.
+COMPLETE_STATUS_DPS = tuple(dp for dp in REQUIRED_DPS if dp != FAULT_DP)
 WRITABLE = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT, Field.AUTO_OFF_SECONDS)
 type WriteMode = Literal["disabled", "multi_dp", "level_before_power"]
 
@@ -88,7 +94,7 @@ def _decode_field(field: Field, raw: object) -> Value | None:
         return LEVELS.get(raw) if isinstance(raw, str) else None
     if field is Field.AUTO_OFF_SECONDS:
         return TIMERS.get(raw) if isinstance(raw, str) else None
-    return raw if type(raw) is int and raw >= 0 else None
+    return raw if type(raw) is int and 0 <= raw <= MAX_SAFE_INTEGER else None
 
 
 def decode_report(dps: Mapping[str, object], zone: int) -> ZoneReport:

@@ -3,12 +3,13 @@ from dataclasses import dataclass, field
 from threading import get_ident
 lazy from collections.abc import Callable
 
-from tuya_mqtt.profiles.sunbeam import REQUIRED_DPS
+from tuya_mqtt.profiles.sunbeam import DP_MAP
 lazy from tuya_mqtt.domain import Value
 
-BASELINE: dict[str, object] = dict(
-    zip(REQUIRED_DPS, [False, "level_4", False, "1h", 3600, 0] * 2, strict=True)
-)
+ZONE_VALUES: list[object] = [False, "level_4", False, "1h", 3600, 0, 0]
+BASELINE: dict[str, object] = {
+    dp: value for zone in DP_MAP for dp, value in zip(zone, ZONE_VALUES, strict=True)
+}
 
 
 @dataclass

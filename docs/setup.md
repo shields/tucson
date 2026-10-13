@@ -2,18 +2,25 @@
 
 ## Pairing and credentials
 
-Pair the bedding with the Sunbeam app using the supplied manual. It requires a
-2.4 GHz Wi-Fi network. The manual’s AP pairing procedure is the fallback if
-automatic pairing fails. Pairing and initial local-key retrieval need the
-existing vendor/Tuya setup tools; the daemon has no cloud fallback or discovery
-loop.
+Pair the bedding with the Smart Life app (“SmartLife: Smart Living”) or the Tuya
+Smart app, not the Sunbeam app: TinyTuya’s wizard can link only devices
+registered in one of those two. A controller already paired in the Sunbeam app
+can be re-paired there. The new pairing issues a new local key, and the Sunbeam
+app then stops controlling it. Pairing requires a 2.4 GHz Wi-Fi network, and the
+manual’s AP pairing procedure is the fallback if automatic pairing fails.
+Pairing and initial local-key retrieval need the existing vendor/Tuya setup
+tools; the daemon has no cloud fallback or discovery loop.
 
 Use TinyTuya’s interactive wizard in a private directory outside this
 repository. For example, create an owner-only setup directory, change to it, and
 run `uv tool run --from tinytuya==1.20.0 python -m tinytuya wizard`. Supply
 cloud credentials interactively, not in command arguments. Follow
 [TinyTuya’s setup instructions](https://github.com/jasonacox/tinytuya#setup-wizard)
-for linking the paired device to the appropriate Tuya account/project.
+for linking the paired device to the appropriate Tuya account/project. Choose
+the Smart Home development method and the data center that matches the app
+account’s region. The wizard saves only the standard instruction set; the
+[hardware acceptance record](hardware-acceptance.md#available-evidence) shows
+how to query the full data model, which declares the remaining DPs.
 
 The wizard writes cloud credentials to `tinytuya.json`, device identities and
 local keys to `devices.json`, and polling snapshots to `snapshot.json`; raw
@@ -87,7 +94,7 @@ routes are read-only:
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/healthz` | HTTP 200 while required coordination loops make progress; otherwise HTTP 503. Dependency outages alone do not make the process unhealthy.                                           |
 | `/readyz`  | HTTP 200 when MQTT and all configured controller baselines are usable; otherwise HTTP 503 with reasons. A healthy controller can still serve commands while another is unavailable. |
-| `/metrics` | Prometheus connectivity, freshness, reconnect, failure, command outcome/latency, queue-depth, and progress measurements.                                                            |
+| `/metrics` | Prometheus connectivity, freshness, reconnect, failure, command outcome/latency, queue-depth, progress, and fault-bitmap measurements.                                              |
 | `/`        | Live controller/zone state, previous snapshots, freshness ages, pending requests, errors, and software versions.                                                                    |
 | `/events`  | JSON status snapshots over Server-Sent Events.                                                                                                                                      |
 

@@ -28,6 +28,7 @@ BASELINE = ZoneState(
     auto_off_seconds=3600,
     remaining_seconds=3600,
     preheat_remaining_seconds=0,
+    fault_code=0,
 )
 
 
