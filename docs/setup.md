@@ -30,10 +30,11 @@ bridge explicitly.
 
 Copy `config.example.json` to an untracked private configuration file. Replace
 the example device identity/address, verify the protocol version, and name the
-zones in A/B order. The example protocol is illustrative; the actual device’s
-protocol is still pending qualification. Each controller has one connection
-owner, even when it has two zones. Run only one bridge instance for that set of
-controllers. Each controller’s optional TCP `port` defaults to 6668.
+zones in A/B order. The example protocol, 3.3, matches the one observed on the
+Sunbeam PP21KQ controller; confirm it for any other device. Each controller has
+one connection owner, even when it has two zones. Run only one bridge instance
+for that set of controllers. Each controller’s optional TCP `port` defaults
+to 6668.
 
 Use `{"env": "VARIABLE_NAME"}` or `{"file": "/mounted/secret"}` for each local
 key and MQTT password. A local key must be exactly 16 ASCII bytes. Secret files
