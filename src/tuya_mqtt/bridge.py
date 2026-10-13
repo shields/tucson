@@ -329,6 +329,10 @@ class Bridge:
         availability: dict[int, bool] = {}
         while True:
             for index, worker in enumerate(self.workers):
+                # The worker publishes the state a command confirms before it queues
+                # the completion, so a snapshot read after the drain holds the state
+                # behind every result published below.
+                results = self._drain(index)
                 view = worker.snapshot
                 for zone in range(2):
                     state = (
@@ -352,7 +356,6 @@ class Bridge:
                         retain=True,
                     )
                     availability[index] = available
-                results = self._drain(index)
                 for completion in results:
                     if completion.request.session_id == self.session_id:
                         self._ledgers[index, completion.request.zone].finish(

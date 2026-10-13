@@ -179,6 +179,59 @@ async def test_pending_duplicate_conflict_terminal_replay_and_zone_scope(
         await stop(bridge, task)
 
 
+async def test_results_follow_the_state_they_confirm(
+    rig: tuple[Bridge, Worker, MQTT, Scheduler],
+) -> None:
+    bridge, worker, mqtt, scheduler = rig
+    worker.auto_confirm = False
+    task = await start(bridge, mqtt)
+    try:
+        for zone, request_id, level in (("side_a", "a", 6), ("side_b", "b", 8)):
+            await bridge.handle(
+                mqtt,
+                Message(
+                    f"tuya/bed/{zone}/set",
+                    f'{{"request_id":"{request_id}","power":true,'
+                    f'"heat_level":{level}}}'.encode(),
+                    retained=False,
+                ),
+            )
+        worker.confirm(worker.requests[0])
+        unfinished = [worker.requests[1]]
+        publish = mqtt.publish
+
+        async def publish_while_worker_finishes(
+            topic: str, payload: str, *, qos: int, retain: bool
+        ) -> None:
+            await publish(topic, payload, qos=qos, retain=retain)
+            if unfinished:
+                worker.confirm(unfinished.pop())
+
+        mqtt.publish = publish_while_worker_finishes
+        scheduler.advance(0.05)
+        await eventually(lambda: bool(publications(mqtt, "tuya/bed/side_a/result")))
+        scheduler.advance(0.05)
+        await eventually(
+            lambda: (
+                bool(publications(mqtt, "tuya/bed/side_b/result"))
+                and len(publications(mqtt, "tuya/bed/side_b")) == 2
+            )
+        )
+        events = [
+            f"{topic}:{data.get('heat_level', data.get('request_id'))}"
+            for topic, payload, *_ in mqtt.publications
+            if topic.startswith("tuya/bed/side_")
+            for data in [json.loads(payload)]
+        ]
+        for state, result in (
+            ("tuya/bed/side_a:6", "tuya/bed/side_a/result:a"),
+            ("tuya/bed/side_b:8", "tuya/bed/side_b/result:b"),
+        ):
+            assert events.index(state) < events.index(result)
+    finally:
+        await stop(bridge, task)
+
+
 @pytest.mark.parametrize(
     "payload",
     [
