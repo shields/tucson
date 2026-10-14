@@ -52,7 +52,15 @@ def test_build_defers_device_and_mqtt_creation_to_owners(
 
 
 @pytest.mark.parametrize(
-    "mode", ["normal", "run_failure", "signal_failure", "no_password"]
+    "mode",
+    [
+        "normal",
+        "run_failure",
+        "signal_failure",
+        "no_password",
+        "empty_stamps",
+        "unset_stamps",
+    ],
 )
 async def test_runtime_signals_versions_cleanup_and_secret_redaction(
     mode: str,
@@ -98,7 +106,15 @@ async def test_runtime_signals_versions_cleanup_and_secret_redaction(
     monkeypatch.setattr(loop, "remove_signal_handler", removed.append)
     monkeypatch.setattr(runtime, "build", lambda _resolved: Bridge())
     monkeypatch.setattr(runtime, "StatusServer", lambda *_args: Server())
-    monkeypatch.setenv("TUYA_MQTT_REVISION", resolved.local_keys[0])
+    stamped = mode not in ("empty_stamps", "unset_stamps")
+    if mode == "unset_stamps":
+        monkeypatch.delenv("TUYA_MQTT_REVISION", raising=False)
+        monkeypatch.delenv("TUYA_MQTT_VERSION", raising=False)
+    else:
+        monkeypatch.setenv(
+            "TUYA_MQTT_REVISION", resolved.local_keys[0] if stamped else ""
+        )
+        monkeypatch.setenv("TUYA_MQTT_VERSION", "20261014.2" if stamped else "")
     if mode == "no_password":
         resolved = replace(resolved, mqtt_password=None)
     if mode in ("run_failure", "signal_failure"):
@@ -111,8 +127,8 @@ async def test_runtime_signals_versions_cleanup_and_secret_redaction(
     assert server_calls[-1] == "close"
     event = json.loads(capsys.readouterr().out)
     assert event["event"] == "starting"
-    assert event["revision"] == "[redacted]"
+    assert event["revision"] == ("[redacted]" if stamped else "unknown")
     assert event["python_version"]
     assert event["tinytuya_version"]
-    assert event["application_version"]
+    assert event["application_version"] == ("20261014.2" if stamped else "unknown")
     assert event["controllers"] == 1

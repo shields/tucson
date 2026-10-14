@@ -603,8 +603,9 @@ Follow the [CI guide](https://github.com/shields/right-answers/blob/main/ci.md):
 CI installs the frozen lockfiles and calls Make targets for format, lint, types,
 100% coverage, TCP adapter tests, broker tests, and container startup/shutdown
 checks. Container publication depends on every required check for the exact
-source revision being published. If a separate tag-triggered release workflow is
-used, it must enforce the same checks; a tag cannot bypass the branch/PR gate.
+source revision being published. Images are published only from main and tagged
+with the commit’s GitCalVer version, computed by `scripts/gitcalver.sh`; pull
+requests and other branches cannot publish.
 
 Follow the
 [container guide](https://github.com/shields/right-answers/blob/main/containers.md):
@@ -620,8 +621,9 @@ Use Renovate with `.github/renovate.json5`, `config:best-practices`,
 `:semanticCommitsDisabled`, and platform automerge behind required checks.
 Follow the shared non-major and development-dependency update rules, explicitly
 covering the dependency groups used here. Keep required checks configured so
-automerge cannot bypass them. Complete the device qualification below before
-deploying TinyTuya updates, including those merged automatically.
+automerge cannot bypass them. Do not automerge TinyTuya updates, because merging
+to main publishes. Complete the device qualification below before deploying
+them.
 
 Run one bridge instance per controller ownership set. Keep immutable version
 tags and a documented rollback to the previous image and configuration. There is

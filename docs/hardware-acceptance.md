@@ -54,15 +54,15 @@ more than the standard instruction set that TinyTuya’s wizard saves:
 
 ## Observations
 
-| Item            | Value                                                                                                                                                                                          |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Date            | 2026-10-12                                                                                                                                                                                     |
-| Controller      | Sunbeam style PP21KQ, dual zone                                                                                                                                                                |
-| Firmware        | Main module V2.1.6 and MCU module V1.0.10, from the Smart Life Device Update screen; Auto Upgrade is off                                                                                       |
-| Local protocol  | 3.3                                                                                                                                                                                            |
-| Bridge host     | macOS with Python 3.15.0, TinyTuya 1.20.0, and bridge revision `f89af41`, using the read-only `inspect` command and a scratch watcher built on the same adapter                                |
-| Network         | Bridge host and controller on one LAN with Internet access not blocked; the controller is paired with Smart Life, whose app was used during the tests; the DHCP reservation is not yet applied |
-| Reported fields | Power, heat level, and preheat for both zones were present in every report; timers and countdowns were present too                                                                             |
+| Item            | Value                                                                                                                                                                                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Date            | 2026-10-12                                                                                                                                                                                                                                                             |
+| Controller      | Sunbeam style PP21KQ, dual zone                                                                                                                                                                                                                                        |
+| Firmware        | Main module V2.1.6 and MCU module V1.0.10, from the Smart Life Device Update screen; Auto Upgrade is off                                                                                                                                                               |
+| Local protocol  | 3.3                                                                                                                                                                                                                                                                    |
+| Bridge host     | macOS with Python 3.15.0, TinyTuya 1.20.0, and bridge revision `f89af41`, using the read-only `inspect` command and a scratch watcher built on the same adapter                                                                                                        |
+| Network         | Bridge host and controller on one LAN with Internet access not blocked; the controller is paired with Smart Life, whose app was used during the tests; the DHCP reservation is applied and the controller answered at the reserved address during the 2026-10-13 tests |
+| Reported fields | Power, heat level, and preheat for both zones were present in every report; timers and countdowns were present too                                                                                                                                                     |
 
 ### Observed DP map
 
@@ -118,7 +118,8 @@ level past one hour (see [Write behavior](#write-behavior)).
 ### Write behavior
 
 On 2026-10-13 a scratch script wrote through the adapter’s `write` method, with
-the side being tested on for a few seconds at low levels and both sides off at
+the side being tested on at low levels for a few seconds, or up to about 80
+seconds in the timer tests, preheat cancelled immediately, and both sides off at
 the end, except for the long-running preheat and level observations below.
 Writes were acknowledged by unsolicited reports within about 0.3 seconds.
 
@@ -136,14 +137,14 @@ Writes were acknowledged by unsolicited reports within about 0.3 seconds.
   and the side stayed on, so arbitrary durations are not possible.
 - **A level write turns a side on,** even in the same packet as power off. Power
   off alone turns it off, and the selected level survives.
-- **Preheat** behaves as it does from the controller. Starting it on a side that
-  is off turns the side on at level 10 and reports 1,800 seconds remaining. It
-  ended exactly 30 minutes later: the preheat DP cleared, the level returned to
-  the side’s stored level (level 1 here) within 35 ms, and the side stayed on.
-  It was still on 8 minutes later, when the test turned it off. The side’s
-  auto-off timer counted down through the preheat and kept running afterwards,
-  and a timer write during preheat was accepted. Preheat started no presence
-  window.
+- **Preheat** behaves as it does from the controller. Starting it on side A,
+  which was off, turned the side on at level 10 and reported 1,800 seconds
+  remaining. It ended exactly 30 minutes later: the preheat DP cleared, the
+  level returned to the side’s stored level (level 1 here) within 35 ms, and the
+  side stayed on. It was still on eight minutes later, when the test turned it
+  off. The side’s auto-off timer counted down through the preheat and kept
+  running afterwards, and a timer write during preheat was accepted. Preheat
+  started no presence window.
 - **The presence window starts on an explicit power write.** Writing power on
   over the LAN set DP 104 to `45_Minutes_Before`, and power off returned it to
   `User_Confirmation`. Turning a side on through a level or preheat write
@@ -159,7 +160,7 @@ On 2026-10-13 the daemon at revision `593bf00` ran with `write_mode: multi_dp`
 on macOS with Python 3.15.0 and TinyTuya 1.20.0, against a private local broker
 and the real controller on the same LAN with Internet access not blocked. An
 MQTT client sent a short sequence of commands, each side on for a few seconds at
-low levels. All 16 checks passed, every command that reached the controller was
+low levels. All 15 checks passed, every command that reached the controller was
 confirmed, and both sides ended off with their previous levels restored. The
 daemon exited with code 0 on SIGTERM.
 
@@ -191,7 +192,7 @@ device/account identifiers and real local keys.
 | Level selection for a side that is off                                    | Verified: the firmware turns a side on when a level is written, even with power off in the same packet, so a level cannot be selected while a side stays off. The worker therefore sends a level for a side that is off with an explicit power-on.                                                                                                                                                                                                    |
 | Power-off/on preserves the selected level                                 | Verified: power off from the adapter kept the level, and power on alone resumed at it.                                                                                                                                                                                                                                                                                                                                                                |
 | Verified individual-write ordering or multi-DP behavior                   | Verified: `multi_dp` applies power, timer, and level in one packet. In the smoke test the daemon sent every command that reached the controller as one packet. A timer must accompany or follow power because the firmware ignores it for a side that is off, and a level write turns the side on.                                                                                                                                                    |
-| Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified from the controller and the adapter on both sides, with level 10 and 1,800 seconds while active. Preheat on a side that is off turns it on at level 10 and starts no presence window. On side A it ended exactly 30 minutes later, returning to the stored level with the side still on, and the auto-off timer ran through it. Completion on side B is pending.                                        |
+| Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified from the controller on both sides and from the adapter on side A, with level 10 and 1,800 seconds while active. Preheat on side A while it was off turned it on at level 10 and started no presence window. It ended exactly 30 minutes later, returning to the stored level with the side still on, and the auto-off timer ran through it. Adapter writes and completion on side B are pending.        |
 | Physical controls reflected in reported state                             | Verified for power, heat level, and preheat on both sides                                                                                                                                                                                                                                                                                                                                                                                             |
 | Timer expiry and remote presence-confirmation behavior                    | Partial: after an app activation, the one-hour rule lowered level 5 to level 4 on both zones, and pressing the check button returned DP 104 to `User_Confirmation`, after which level 6 could be set. A level write that turned a side on started no window, and level 5 held for 62 minutes. An explicit power write over the LAN starts the window, but the cap after a window started that way has not been observed, and timer expiry is pending. |
 | Cold boot, Wi-Fi, bridge, and broker interruption/recovery                | Pending                                                                                                                                                                                                                                                                                                                                                                                                                                               |

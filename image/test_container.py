@@ -80,11 +80,10 @@ def docker() -> Docker:
     metadata = json.loads(service.call("image", "inspect", service.image))[0]
     assert metadata["Architecture"] == os.environ["TUCSON_PLATFORM"].split("/")[1]
     assert metadata["Config"]["User"] == "65532:65532"
-    assert (
-        metadata["Config"]["Labels"]["org.opencontainers.image.revision"]
-        == (os.environ["TUCSON_REVISION"])
-    )
-    assert metadata["Config"]["Labels"]["org.opencontainers.image.source"] == (
+    labels = metadata["Config"]["Labels"]
+    assert labels["org.opencontainers.image.revision"] == os.environ["TUCSON_REVISION"]
+    assert labels["org.opencontainers.image.version"] == os.environ["TUCSON_VERSION"]
+    assert labels["org.opencontainers.image.source"] == (
         "https://github.com/shields/tucson"
     )
     return service
@@ -230,6 +229,7 @@ async def test_image_reports_dependency_outages_and_stops_on_signals(
             line = await asyncio.wait_for(response.content.readline(), 3)
             snapshot = json.loads(line[6:])
             assert snapshot["versions"]["revision"] == os.environ["TUCSON_REVISION"]
+            assert snapshot["versions"]["application"] == os.environ["TUCSON_VERSION"]
             assert KEY not in json.dumps(snapshot)
             assert snapshot["controllers"][0]["zones"][0]["reported"]["power"] is None
         async with client.get(base) as response:

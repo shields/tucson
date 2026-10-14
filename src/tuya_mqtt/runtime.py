@@ -33,8 +33,8 @@ async def run(resolved: ResolvedConfig) -> None:
     )
     configure(secrets)
     versions = {
-        "application": version("tuya-mqtt"),
-        "revision": os.environ.get("TUYA_MQTT_REVISION", "unknown"),
+        "application": os.environ.get("TUYA_MQTT_VERSION") or "unknown",
+        "revision": os.environ.get("TUYA_MQTT_REVISION") or "unknown",
         "python": sys.version.split()[0],
         "tinytuya": version("tinytuya"),
     }

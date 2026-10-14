@@ -77,9 +77,13 @@ state and results, and keeps observing devices during broker outages. It has no
 desired-state database or outbound command replay queue.
 
 Startup records the application version/revision, Python version, and TinyTuya
-version in JSON logs. Known local keys and MQTT passwords are redacted from
-strings; credential-bearing objects are refused before serialization. Unexpected
-application failures log their exception type and exit nonzero.
+version in JSON logs. The application version and revision come from the
+`TUYA_MQTT_VERSION` and `TUYA_MQTT_REVISION` environment variables that the
+container image sets; a run from a source checkout reports both as `unknown`.
+The version in `pyproject.toml` is a placeholder and is never reported. Known
+local keys and MQTT passwords are redacted from strings; credential-bearing
+objects are refused before serialization. Unexpected application failures log
+their exception type and exit nonzero.
 
 SIGINT and SIGTERM stop command admission, publish controller and bridge offline
 while MQTT is connected, and join the controller owners before exiting. A

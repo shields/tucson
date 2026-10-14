@@ -33,9 +33,11 @@ COPY --from=build /opt/python /opt/python
 COPY --from=build /opt/app /opt/app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 ARG REVISION
-ENV TUYA_MQTT_REVISION=$REVISION
+ARG VERSION
+ENV TUYA_MQTT_REVISION=$REVISION TUYA_MQTT_VERSION=$VERSION
 LABEL org.opencontainers.image.source="https://github.com/shields/tucson" \
-      org.opencontainers.image.revision=$REVISION
+      org.opencontainers.image.revision=$REVISION \
+      org.opencontainers.image.version=$VERSION
 USER 65532:65532
 WORKDIR /app
 EXPOSE 8080

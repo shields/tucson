@@ -33,16 +33,13 @@ def workflows() -> dict[str, dict[str, Any]]:
 def test_publication_requires_every_gate_in_the_same_source_revision_run() -> None:
     definitions = workflows()
     workflow = definitions["checks.yml"]
-    assert workflow["on"]["push"] == {
-        "branches": ["**"],
-        "tags": ["v*.*.*"],
-    }
+    assert workflow["on"]["push"] == {"branches": ["**"]}
     assert "pull_request" in workflow["on"]
     assert workflow["permissions"] == {"contents": "read"}
     publish = workflow["jobs"]["publish"]
     assert set(publish["needs"]) == set(workflow["jobs"]) - {"publish"}
     assert publish["if"] == (
-        "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+        "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     )
     privileged = [
         (name, identifier)
@@ -51,13 +48,14 @@ def test_publication_requires_every_gate_in_the_same_source_revision_run() -> No
         if job.get("permissions", definition["permissions"]).get("packages") == "write"
     ]
     assert privileged == [("checks.yml", "publish")]
-    for job in workflow["jobs"].values():
+    for name, job in workflow["jobs"].items():
         checkout = next(
             step
             for step in job["steps"]
             if step.get("uses", "").startswith("actions/checkout@")
         )
-        assert checkout["with"] == {"persist-credentials": False}
+        history = {"fetch-depth": 0} if name in ("image", "publish") else {}
+        assert checkout["with"] == history | {"persist-credentials": False}
     steps = publish["steps"]
     download = next(
         step
@@ -69,7 +67,15 @@ def test_publication_requires_every_gate_in_the_same_source_revision_run() -> No
         "path": ".build/images",
         "merge-multiple": True,
     }
+    version = next(step for step in steps if step.get("id") == "version")
+    assert version["env"] == {"REVISION": "${{ github.sha }}"}
+    assert version["run"].splitlines() == [
+        'version=$(./scripts/gitcalver.sh "$REVISION")',
+        'echo "version=$version" >> "$GITHUB_OUTPUT"',
+    ]
+    assert "shell" not in version
     assert steps[-1]["env"]["REVISION"] == "${{ github.sha }}"
+    assert steps[-1]["env"]["RELEASE_TAG"] == "${{ steps.version.outputs.version }}"
     assert not any("make image" in step.get("run", "") for step in steps)
 
 
@@ -127,7 +133,10 @@ console.log(JSON.stringify({config, matches}));
     config = data["config"]
     assert config["platformAutomerge"] is True
     assert config["ignoreTests"] is False
+    rules = config["packageRules"]
     assert any(
         "dependency-groups" in rule.get("matchDepTypes", []) and rule["automerge"]
-        for rule in config["packageRules"]
+        for rule in rules
     )
+    assert rules[-1]["matchPackageNames"] == ["tinytuya"]
+    assert rules[-1]["automerge"] is False

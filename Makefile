@@ -9,6 +9,7 @@ NODE ?= node
 HOBOKEN_SOURCE ?=
 IMAGE_PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 REVISION ?= $(shell git rev-parse HEAD)
+VERSION ?= $(shell ./scripts/gitcalver.sh --dirty -dev)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD)
 CRANE_VERSION = 0.22.1
 CRANE_SHA256_arm64 = 898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110
@@ -52,10 +53,12 @@ homekit:
 	PATH="$(TEST_PATH)" HOBOKEN_SOURCE="$(HOBOKEN_SOURCE)" NODE="$(NODE)" uv run --frozen python -m pytest -p tests.conftest qualification
 
 image:
-	docker buildx build --network host --platform "$(IMAGE_PLATFORM)" --provenance=false --build-arg REVISION="$(REVISION)" --build-arg SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" --output type=docker,rewrite-timestamp=true --tag "$(IMAGE)" .
+	test -n "$(VERSION)"
+	docker buildx build --network host --platform "$(IMAGE_PLATFORM)" --provenance=false --build-arg REVISION="$(REVISION)" --build-arg VERSION="$(VERSION)" --build-arg SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" --output type=docker,rewrite-timestamp=true --tag "$(IMAGE)" .
 
 test-image:
-	PATH="$(TEST_PATH)" TUCSON_IMAGE="$(IMAGE)" TUCSON_REVISION="$(REVISION)" TUCSON_PLATFORM="$(IMAGE_PLATFORM)" uv run --frozen python -m pytest -p tests.broker -p tests.tcp image
+	test -n "$(VERSION)"
+	PATH="$(TEST_PATH)" TUCSON_IMAGE="$(IMAGE)" TUCSON_REVISION="$(REVISION)" TUCSON_VERSION="$(VERSION)" TUCSON_PLATFORM="$(IMAGE_PLATFORM)" uv run --frozen python -m pytest -p tests.broker -p tests.tcp image
 
 image-export:
 	mkdir -p .build/images
@@ -67,9 +70,11 @@ release-tools:
 	printf '%s  %s\n' '$(CRANE_SHA256_$(CRANE_ARCH))' '.build/tools/crane.tar.gz' | sha256sum --check
 	tar -xzf .build/tools/crane.tar.gz -C .build/tools crane
 
+# grep validates line by line, so the case rejects a multi-line value first.
 release:
 	@set -eu; \
-	printf '%s\n' "$$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$'; \
+	case "$$RELEASE_TAG$$REVISION" in *[!0-9a-f.]*) exit 1;; esac; \
+	printf '%s\n' "$$RELEASE_TAG" | grep -Eq '^[0-9]{8}\.[1-9][0-9]*$$'; \
 	printf '%s\n' "$$REVISION" | grep -Eq '^[0-9a-f]{40}$$'; \
 	test -n "$$IMAGE_REPOSITORY"; test -n "$$RUN_SUFFIX"; \
 	for arch in amd64 arm64; do test -f ".build/images/$$arch.tar"; done; \
@@ -78,7 +83,10 @@ release:
 	for arch in amd64 arm64; do \
 		crane push ".build/images/$$arch.tar" "$$staging-$$arch"; \
 		crane config "$$staging-$$arch" > ".build/release/$$arch.json"; \
-		jq --exit-status --arg revision "$$REVISION" --arg arch "$$arch" '.architecture == $$arch and .os == "linux" and .config.Labels["org.opencontainers.image.revision"] == $$revision' ".build/release/$$arch.json"; \
+		jq --exit-status --arg revision "$$REVISION" --arg version "$$RELEASE_TAG" --arg arch "$$arch" '.architecture == $$arch and .os == "linux" and .config.Labels["org.opencontainers.image.revision"] == $$revision and .config.Labels["org.opencontainers.image.version"] == $$version' ".build/release/$$arch.json" || { \
+			printf 'Image %s does not match linux/%s, revision %s, and version %s; it has:\n' "$$staging-$$arch" "$$arch" "$$REVISION" "$$RELEASE_TAG" >&2; \
+			jq --compact-output '{architecture, os, revision: .config.Labels["org.opencontainers.image.revision"], version: .config.Labels["org.opencontainers.image.version"]}' ".build/release/$$arch.json" >&2; \
+			exit 1; }; \
 	done; \
 	crane index append --manifest "$$staging-amd64" --manifest "$$staging-arm64" --tag "$$staging"; \
 	digest=$$(crane digest "$$staging"); \

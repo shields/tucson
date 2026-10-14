@@ -68,5 +68,10 @@
       ],
       automerge: true,
     },
+    {
+      description: "TinyTuya updates need a physical-controller smoke test before deployment",
+      matchPackageNames: ["tinytuya"],
+      automerge: false,
+    },
   ],
 }

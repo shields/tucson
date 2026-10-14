@@ -29,10 +29,21 @@ supply. Both variants have glibc; `cc` supplies the GCC runtime as well. The
 image contains neither a shell nor a package manager.
 
 Builds use the source commit time for `SOURCE_DATE_EPOCH` and rewrite layer
-timestamps. The image records its source revision in an OCI label and
-`TUYA_MQTT_REVISION`; startup and HTTP diagnostics report it. The Docker context
-allows only the application, package metadata, lockfile, and README, keeping
-private configuration and secret files out of the build.
+timestamps. The image records its source revision and its version in OCI labels
+and in `TUYA_MQTT_REVISION` and `TUYA_MQTT_VERSION`; startup and HTTP
+diagnostics report both. The version is a [GitCalVer](https://gitcalver.org)
+number, `YYYYMMDD.N`: the commit’s UTC date and the count of commits that share
+it, computed by `scripts/gitcalver.sh` from the git history. A build that is not
+a clean revision of main carries a `-dev.<hash>` suffix and cannot be published.
+`make image` and `make test-image` each compute the version, so run both on the
+same commit and working tree. The computation needs the full history; a shallow
+clone fails instead of producing a version. It also needs main’s history to stay
+append-only and its committer dates never to go backwards: a force push can
+reassign a published version, and a commit whose UTC date is earlier than an
+ancestor’s cannot be versioned. The script is vendored unmodified from gitcalver
+release v20261007.1, and a test pins its checksum, so update both together. The
+Docker context allows only the application, package metadata, lockfile, and
+README, keeping private configuration and secret files out of the build.
 
 Seven smoke cases verify runtime imports and the GCC library, UID/GID 65532, the
 system CA store, read-only storage, mounted configuration/secret resolution,
@@ -84,9 +95,8 @@ use `/opt/app/bin/python` with the standard library; shell and curl are absent.
 
 ## Release gate
 
-The `Checks` workflow runs on every branch push, pull request, and stable
-version tag matching `v*.*.*`. Tag builds execute the entire gate again for that
-exact source revision. Publication depends on:
+The `Checks` workflow runs on every branch push and pull request. A push to main
+runs the entire gate for that exact source revision, and publication depends on:
 
 - `Lint and coverage`, including application, real-library TCP, real-broker,
   integration, and wheel checks.
@@ -97,20 +107,28 @@ These jobs have read-only repository permissions and no publication token. They
 export the checked images as workflow artifacts. The dependent
 `Publish tested images` job downloads those artifacts from the same run,
 installs a checksum-pinned crane binary, and promotes their bytes to GHCR. It
-does not rebuild the application. Each platform’s architecture and source
-revision must match before version tags are written.
+does not rebuild the application. Each platform’s architecture, source revision,
+and version label must match before version tags are written.
 
 `make release` creates a multi-platform index and the `sha-<revision>` and
-`v<major>.<minor>.<patch>` tags. It refuses to replace either existing tag with
-a different digest. A rerun with identical artifacts is allowed. Staging tags
-identify the workflow run and attempt; retain the referenced manifests because
-the release index uses their digests. Do not use mutable tags for deployment.
+`<YYYYMMDD.N>` tags. The job computes that version for the pushed revision and
+fails if the revision is not on main. The version must equal the label the
+tested images carry, so an image built from a dirty tree, which carries a `-dev`
+label, receives neither tag. `make release` refuses to replace either existing
+tag with a different digest. A rerun with identical artifacts is allowed.
+Staging tags identify the workflow run and attempt; retain the referenced
+manifests because the release index uses their digests. Do not use mutable tags
+for deployment.
 
-Before tagging a release, update the project version and complete the required
-controller qualification. Creating a tag is a publication action. The workflow
-publishes only push events for version tags after all gates pass; pull requests
-cannot publish images. Local promotion tests use an isolated loopback registry;
-no release or image has been published to GHCR.
+Merging to main is the publication action: the tip of each push that passes the
+gate is published, documentation changes included. Pull requests and other
+branches build and test images but cannot publish. Qualification therefore gates
+operation, not publication. Controllers default to `write_mode: disabled`, and a
+deployment enables writes for a controller only after the required hardware
+qualification. Commits that are not the tip of a push, whose queued run GitHub
+replaces, or whose gate fails get no image, so version numbers are not
+contiguous. They increase along main as long as committer dates do not go
+backwards.
 
 ## Updates and rollback
 
@@ -132,9 +150,11 @@ checks. Enable Renovate installation and platform automerge after the main
 ruleset enforces the same checks.
 
 Dependency updates run the full gate. TinyTuya updates also require review of
-retry/timeout behavior and a physical-controller smoke test before deployment,
-even if their dependency PR automerges. Update the crane version and its two
-release-archive checksums together; checksum mismatches fail the tool install.
+retry/timeout behavior and a physical-controller smoke test. Renovate does not
+automerge them, because merging to main publishes: run the smoke test with the
+pull request’s image, which the container jobs export as a workflow artifact,
+before merging. Update the crane version and its two release-archive checksums
+together; checksum mismatches fail the tool install.
 
 Keep the previous image digest and its compatible private configuration/secret
 references. To roll back, stop and remove the current container, restore that
