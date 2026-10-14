@@ -95,8 +95,15 @@ disconnect cannot leave retained online state behind after a fatal task failure.
 CI builds the broker from the official
 [2.1.2 source revision](https://github.com/eclipse-mosquitto/mosquitto/tree/99fa50f30e325609394c324c8ff71cfbbe95d8ab)
 using `make test-broker`. Test targets prefer that binary over the system
-broker. Missing Mosquitto fails the tests. Compatibility with the deployed
-broker remains a qualification requirement.
+broker. Missing Mosquitto fails the tests.
+
+The cluster runs Mosquitto 2.0.22. On 2026-10-14 the whole suite (504 tests,
+including every real-broker and process case) passed against a broker built from
+the upstream `v2.0.22` tag (commit `766fa2c`), and the broker and process cases
+passed five more times in a row. This qualifies the MQTT 5 subscription options,
+retained-message handling, session expiry, and Last Will behavior the bridge
+depends on for that version. It is a source build, not the container image, so
+the pod’s first connection to the deployed broker remains the final check.
 
 ## Daemon process qualification
 
