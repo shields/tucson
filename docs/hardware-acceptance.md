@@ -2,9 +2,10 @@
 
 Status: in progress. Read-only observations and physical-control tests from
 2026-10-12, and power, level, timer, and preheat writes through the adapter on
-2026-10-13, are recorded below. The bridge daemon has not yet run a command
-against the controller, so production compatibility remains unproven until this
-record is complete.
+2026-10-13, are recorded below. The bridge daemon ran a command sequence against
+the controller on 2026-10-13, recorded under
+[Bridge daemon smoke test](#bridge-daemon-smoke-test), but production
+compatibility remains unproven until this record is complete.
 
 ## Available evidence
 
@@ -29,8 +30,8 @@ The candidate DP map and timer enum table come from
 The read-only observations below agree with it for every mapped field, and the
 controller reports `Stay_On` as 86,400 seconds, consistent with the manual’s
 24-hour setting. Writes through the adapter are recorded under
-[Write behavior](#write-behavior); no command has yet run through the bridge
-daemon.
+[Write behavior](#write-behavior), and the daemon’s first run under
+[Bridge daemon smoke test](#bridge-daemon-smoke-test).
 
 Tuya’s cloud data model for this controller (the “thing model” returned by
 `/v2.0/cloud/thing/<device id>/model` through TinyTuya’s `Cloud` class) declares
@@ -142,6 +143,28 @@ unsolicited reports within about 0.3 seconds.
   started no window; whether the level cap then still applies after an hour has
   not been tested.
 
+### Bridge daemon smoke test
+
+On 2026-10-13 the daemon at revision `593bf00` ran with `write_mode: multi_dp`
+on macOS with Python 3.15.0 and TinyTuya 1.20.0, against a private local broker
+and the real controller on the same LAN with Internet access not blocked. An
+MQTT client sent a short sequence of commands, each side on for a few seconds at
+low levels. All 16 checks passed, every command that reached the controller was
+confirmed, and both sides ended off with their previous levels restored. The
+daemon exited with code 0 on SIGTERM.
+
+- A level without power for a side that was off was sent as one packet with
+  power first, `{14: true, 20: level_2}`, and confirmed with the side on.
+- Power off alone was confirmed, and the side kept its level.
+- A timer for a side that was off was rejected with `zone_off`, and power off
+  combined with a level was rejected with `invalid_command`. Neither wrote
+  anything, and the side stayed off.
+- Power, level, and timer in one command were applied in one packet and
+  confirmed.
+- Side A’s 7.5 hours was sent as `7h30` and side B’s as `7h30m`, and both were
+  confirmed.
+- Each `command_write` log event recorded the exact packet before it was sent.
+
 ## Qualification record
 
 Record the date, physical model, controller firmware, actual protocol version,
@@ -157,7 +180,7 @@ device/account identifiers and real local keys.
 | Every supported timer enum and `Stay_On` duration                         | Verified: all 21 values were echoed with the matching remaining time on both sides, including `Stay_On` at 86,400 seconds. Side A spells 7.5 hours `7h30` and side B `7h30m`; an unrecognized value is ignored and resets the remaining time to 86,400 seconds.                                                                                                                                |
 | Level selection for a side that is off                                    | Verified: the firmware turns a side on when a level is written, even with power off in the same packet, so a level cannot be selected while a side stays off. The worker therefore sends a level for a side that is off with an explicit power-on.                                                                                                                                             |
 | Power-off/on preserves the selected level                                 | Verified: power off from the adapter kept the level, and power on alone resumed at it.                                                                                                                                                                                                                                                                                                         |
-| Verified individual-write ordering or multi-DP behavior                   | Verified: `multi_dp` applies power, timer, and level in one packet. A timer must accompany or follow power because the firmware ignores it for a side that is off, and a level write turns the side on.                                                                                                                                                                                        |
+| Verified individual-write ordering or multi-DP behavior                   | Verified: `multi_dp` applies power, timer, and level in one packet. In the smoke test the daemon sent every command that reached the controller as one packet. A timer must accompany or follow power because the firmware ignores it for a side that is off, and a level write turns the side on.                                                                                             |
 | Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified from the controller and the adapter, with level 10 and 1,800 seconds while active. Preheat on a side that is off turns it on at level 10. Completion is pending.                                                                                                                                                                                 |
 | Physical controls reflected in reported state                             | Verified for power, heat level, and preheat on both sides                                                                                                                                                                                                                                                                                                                                      |
 | Timer expiry and remote presence-confirmation behavior                    | Partial: after an app activation, the one-hour rule lowered level 5 to level 4 on both zones, and pressing the check button returned DP 104 to `User_Confirmation`, after which level 6 could be set. An explicit power write over the LAN also starts the window. A level or preheat write that turns a side on starts none, and whether the cap then applies is pending, as is timer expiry. |
