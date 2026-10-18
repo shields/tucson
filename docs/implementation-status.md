@@ -49,8 +49,9 @@ contract; they do not exercise Sunbeam hardware.
 `make homekit` additionally exercises the actual Tucson and Hoboken processes
 together against the TCP simulator on protocols 3.3, 3.4, and 3.5. It checks
 decoded writes, physical-style state pushes, and shutdown-driven HomeKit
-unavailability. This target requires both checkouts and Node.js 24; it does not
-silently skip missing prerequisites.
+unavailability. This target requires both checkouts and the
+[prerequisites in the qualification record](adapter-qualification.md#controller-through-homekit-qualification);
+it does not silently skip missing prerequisites.
 
 ## Shared configuration differences
 

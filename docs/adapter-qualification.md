@@ -132,9 +132,10 @@ firmware, physical zone orientation, or Home/Siri behavior.
 
 ## Controller-through-HomeKit qualification
 
-Run `make homekit HOBOKEN_SOURCE=/path/to/hoboken NODE=/path/to/node24` with
-both checkouts' frozen dependencies installed. The selected target requires
-Hoboken's `integration/tucson-roundtrip.ts` driver, Node.js 24, and the pinned
+Run `make homekit HOBOKEN_SOURCE=/path/to/hoboken NODE=/path/to/node` with both
+checkouts' frozen dependencies installed. The selected target requires Hoboken's
+`integration/tucson-roundtrip.ts` driver, the Node.js major version that
+`node-version` sets in Hoboken's `.github/workflows/build.yml`, and the pinned
 Mosquitto executable. It fails when prerequisites are absent.
 
 The three protocol cases use the actual Tucson process and Hoboken bridge,

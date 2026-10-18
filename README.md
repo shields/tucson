@@ -18,7 +18,7 @@ Ubuntu, `make test-broker-deps` installs those build prerequisites. Test targets
 prefer the built broker, then a Mosquitto executable on `PATH`.
 
 With a Hoboken checkout and its frozen dependencies installed, run
-`make homekit HOBOKEN_SOURCE=/path/to/hoboken NODE=/path/to/node24` for
+`make homekit HOBOKEN_SOURCE=/path/to/hoboken NODE=/path/to/node` for
 controller-through-HomeKit qualification. This runs Tucson's actual daemon,
 Mosquitto, the real TCP device simulator, and paired HAP HTTP clients on
 protocols 3.3, 3.4, and 3.5. Missing checkouts or runtimes fail the target.
