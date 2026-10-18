@@ -160,7 +160,7 @@ On 2026-10-13 the daemon at revision `593bf00` ran with `write_mode: multi_dp`
 on macOS with Python 3.15.0 and TinyTuya 1.20.0, against a private local broker
 and the real controller on the same LAN with Internet access not blocked. An
 MQTT client sent a short sequence of commands, each side on for a few seconds at
-low levels. All 15 checks passed, every command that reached the controller was
+low levels. All checks passed, every command that reached the controller was
 confirmed, and both sides ended off with their previous levels restored. The
 daemon exited with code 0 on SIGTERM.
 

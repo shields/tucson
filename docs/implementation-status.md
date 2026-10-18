@@ -9,9 +9,9 @@ changing its requirements.
 | Controller and dependency qualification | Supplied manual reviewed; [TCP qualification](adapter-qualification.md) with decoded write counts on Python 3.15.0/TinyTuya 1.20.0; [pairing runbook](setup.md); [hardware record](hardware-acceptance.md) of identity, protocol 3.3, the DP map, timers, preheat, write behavior, and a daemon smoke test | Timer expiry, preheat writes and completion on side B, the cap after a bridge-started window, first connection to the deployed broker container |
 | Foundation and profile                  | Frozen strict JSON configuration with secret references; typed state/command/result model; candidate dual-zone conversion; validation/inspection CLI; locked dependencies; Make, Lefthook, lint/types, and 100% line/branch coverage                                                                       | Timer expiry, preheat writes and completion on side B, and the cap after a bridge-started window                                                |
 | Controller worker                       | [Owner thread and state machine](controller-worker.md), bounded request/result admission, generation/session baselines, maintenance, confirmation, reconnects, and fatal shutdown/failure boundaries; deterministic and real-adapter TCP cases pass                                                        | Timer expiry, preheat writes and completion on side B, and the cap after a bridge-started window                                                |
-| MQTT bridge                             | Run CLI, MQTT 5/session/command/snapshot coordination, 32 deterministic bridge cases, and 10 real-Mosquitto/controller process cases including broker persistence, command replay prevention, independent controller faults, and shutdown                                                                  | First connection to the deployed broker container                                                                                               |
+| MQTT bridge                             | Run CLI, MQTT 5/session/command/snapshot coordination, deterministic bridge cases, and real-Mosquitto/controller process cases including broker persistence, command replay prevention, independent controller faults, and shutdown                                                                        | First connection to the deployed broker container                                                                                               |
 | Operations and release                  | JSON logging/redaction, signals, metrics, HTTP/SSE/status supervision; pinned non-root Distroless images, per-platform smoke cases, artifact promotion/immutable-tag guards, same-revision CI release dependencies, GitCalVer publication from main, Renovate, and deployment/troubleshooting guides       | Required container checks, first GHCR publication, Renovate installation                                                                        |
-| Hoboken                                 | Mattress source, accessories, MQTT 5 sessions, configuration, metrics/status, and combined qualification pushed through `f526fd1`; native CI passes; 792 tests pass in the pinned screenshot image, 20 paired HAP/MQTT cases pass, and three complete controller-path cases pass                           | Actual Home/Siri qualification                                                                                                                  |
+| Hoboken                                 | Mattress source, accessories, MQTT 5 sessions, configuration, metrics/status, and combined qualification pushed through `f526fd1`; native CI passes; the unit tests pass in the pinned screenshot image, and the paired HAP/MQTT and complete controller-path cases pass                                   | Actual Home/Siri qualification                                                                                                                  |
 | Offline acceptance                      | [Hardware record](hardware-acceptance.md) with observations, adapter write results, and explicit pending results                                                                                                                                                                                           | Functional matrix, failure recovery, and seven-day offline soak                                                                                 |
 
 The
@@ -37,14 +37,14 @@ and the production image build. The
 [workflow-security run](https://github.com/shields/hoboken/actions/runs/38338739105)
 also passed. Image publication was skipped for the branch run.
 
-Hoboken's integration suite is committed in `316e995`. Its nine mattress cases
-and the existing eleven WLED cases pass together on Node 24.21.0. The mattress
-cases use a pinned Mosquitto 2.1.2 build and actual paired HAP HTTP connections.
-They cover both zones, off precedence, stateful preheat, rejected and retained
-results, session changes, the full HAP write deadline, and broker restart
-without command replay. Workflow checks and the broker's Renovate extraction
-pass locally, with native RE2 enabled for validation. These cases simulate the
-MQTT controller contract; they do not exercise Sunbeam hardware.
+Hoboken's integration suite is committed in `316e995`. Its mattress cases and
+the existing WLED cases pass together on Node 24.21.0. The mattress cases use a
+pinned Mosquitto 2.1.2 build and actual paired HAP HTTP connections. They cover
+both zones, off precedence, stateful preheat, rejected and retained results,
+session changes, the full HAP write deadline, and broker restart without command
+replay. Workflow checks and the broker's Renovate extraction pass locally, with
+native RE2 enabled for validation. These cases simulate the MQTT controller
+contract; they do not exercise Sunbeam hardware.
 
 `make homekit` additionally exercises the actual Tucson and Hoboken processes
 together against the TCP simulator on protocols 3.3, 3.4, and 3.5. It checks
