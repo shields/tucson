@@ -94,6 +94,11 @@ The profile does not use DPs 1, 4, 8, 104, or 105. DP 13 is published as
   repeated twice on side A and once on side B.
 - The Smart Life app and the local connection operated at the same time without
   disconnecting one another.
+- On 2026-10-18 a second local session opened while another held its connection.
+  Both completed the handshake, read status every 10 seconds for 90 seconds, and
+  received the controller’s pushes, and neither was disconnected, so the
+  controller accepts at least two simultaneous local sessions. A status request
+  on either session can return an unrelated push in place of the reply.
 
 ### Remote activation and presence confirmation
 

@@ -39,11 +39,11 @@ bridge explicitly.
 Copy `config.example.json` to an untracked private configuration file. Replace
 the example device identity/address, verify the protocol version, and name the
 zones in A/B order. The example protocol, 3.3, matches the one observed on the
-Sunbeam PP21KQ controller; confirm it for any other device. Each controller has
-one connection owner, even when it has two zones. Run only one bridge instance
-for that set of controllers. Each controller’s optional TCP `port` defaults
-to 6668. Every address and port pair must be unique, so two controllers can
-share an address only on different ports.
+Sunbeam PP21KQ controller; confirm it for any other device. Each controller is
+driven by exactly one bridge, even when it has two zones. Run only one bridge
+instance for that set of controllers. Each controller’s optional TCP `port`
+defaults to 6668. Every address and port pair must be unique, so two controllers
+can share an address only on different ports.
 
 Use `{"env": "VARIABLE_NAME"}` or `{"file": "/mounted/secret"}` for each local
 key and MQTT password. A local key must be exactly 16 ASCII bytes. Secret files
@@ -61,11 +61,14 @@ before connecting. Validation checks identities, names, ranges, profiles,
 protocol strings, duplicate JSON keys, and secret resolution without opening
 network connections.
 
-Stop the bridge before using
+Inspect a controller with
 `uv run --frozen tuya-mqtt inspect --config /path/to/config.json --controller bed`.
-Inspection uses the daemon’s read-only adapter and prints sanitized numeric DP
-data. It issues status queries only; it does not change heat, preheat, or
-timers. Compare the observed data with the
+It can run while the bridge is running, because the controller accepts more than
+one local session. Inspection uses the daemon’s read-only adapter and prints
+sanitized numeric DP data. It issues status queries only; it does not change
+heat, preheat, or timers. While a timer or preheat runs, the controller can
+answer with a countdown push holding only DPs 28, 29, 102, or 103 in place of
+the full status; run it again. Compare the observed data with the
 [hardware acceptance record](hardware-acceptance.md) before enabling production
 writes.
 

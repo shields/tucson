@@ -102,8 +102,9 @@ unnecessary here. [Release](https://pypi.org/project/tinytuya/1.20.0/),
 ## Configuration and setup
 
 Provide `validate-config`, `inspect`, and `run` subcommands. `inspect` performs
-a read-only status query through the same adapter and prints sanitized DP data;
-stop the running bridge before using it so there is one connection owner.
+a read-only status query through the same adapter and prints sanitized DP data.
+The controller accepts more than one local session, so it can run alongside the
+bridge.
 
 Configuration includes MQTT host/port, a stable unique client ID, topic prefix,
 TLS settings when applicable, HTTP bind address/port, and a list of controllers.
@@ -625,9 +626,9 @@ automerge cannot bypass them. Do not automerge TinyTuya updates, because merging
 to main publishes. Complete the device qualification below before deploying
 them.
 
-Run one bridge instance per controller ownership set. Keep immutable version
-tags and a documented rollback to the previous image and configuration. There is
-no persisted desired-state database to restore or replay. Dependency updates run
+Run one bridge instance for each set of controllers. Keep immutable version tags
+and a documented rollback to the previous image and configuration. There is no
+persisted desired-state database to restore or replay. Dependency updates run
 the full gate; TinyTuya changes additionally require review of retry/timeout
 behavior and a short physical-controller smoke test before deployment. A
 protocol-related fix needs a regression test at the adapter boundary even if the

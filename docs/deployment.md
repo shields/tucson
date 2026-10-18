@@ -54,10 +54,11 @@ The ordinary application gate separately enforces 100% line and branch coverage.
 
 ## Run on the LAN
 
-Run one instance for each configured controller ownership set. Stop that
-instance before read-only inspection or another program connects to the same
-controller. Use the [setup guide](setup.md) to validate identities, protocol,
-zone order, and write policy.
+Run one bridge instance for each set of controllers: two bridges driving one
+controller would fight over its state and each other's command confirmations.
+Read-only inspection can run alongside the bridge, because the controller
+accepts more than one local session. Use the [setup guide](setup.md) to validate
+identities, protocol, zone order, and write policy.
 
 Keep configuration and credentials outside the image. Make mounted files
 readable by UID/GID 65532 and their directories traversable. For example,
@@ -103,9 +104,8 @@ needed. Set `http.bind` to `0.0.0.0` so probes and Prometheus reach the pod.
 
 Mount secrets as files and reference them with `file` secret references. They
 must be readable by UID/GID 65532, for example `fsGroup: 65532` with mode
-`0440`, and one trailing newline is removed. Use `Recreate` updates, because the
-controller accepts one connection owner: stop the pod before `inspect` or any
-other program connects to the controller. Probe `/healthz` for liveness only;
+`0440`, and one trailing newline is removed. Use `Recreate` updates, so two
+bridges never drive the controller at once. Probe `/healthz` for liveness only;
 `/readyz` reports broker and controller outages, which a restart would not fix.
 Allow at least 30 seconds for shutdown. Leave `write_mode` at its default,
 `disabled`, until the controller has passed the hardware qualification.
