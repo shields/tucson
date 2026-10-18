@@ -93,6 +93,65 @@ outages leave liveness healthy while readiness explains what is unavailable.
 Readiness failures must not trigger restart loops. A probe inside the image can
 use `/opt/app/bin/python` with the standard library; shell and curl are absent.
 
+## Run in Kubernetes
+
+The bridge makes only outbound connections: TCP to the controller's configured
+address and port (default 6668), TCP to the MQTT broker, and DNS. The
+configuration requires an explicit controller address, so Tuya's UDP discovery
+never runs and the ordinary pod network is enough; host networking is not
+needed. Set `http.bind` to `0.0.0.0` so probes and Prometheus reach the pod.
+
+Mount secrets as files and reference them with `file` secret references. They
+must be readable by UID/GID 65532, for example `fsGroup: 65532` with mode
+`0440`, and one trailing newline is removed. Use `Recreate` updates, because the
+controller accepts one connection owner: stop the pod before `inspect` or any
+other program connects to the controller. Probe `/healthz` for liveness only;
+`/readyz` reports broker and controller outages, which a restart would not fix.
+Allow at least 30 seconds for shutdown. Leave `write_mode` at its default,
+`disabled`, until the controller has passed the hardware qualification.
+
+## Broker access control
+
+Give Tucson its own broker user. The topics below follow the example
+configuration's `topic_prefix` (`tuya`), controller name (`bed`), and zone names
+(`side_a`, `side_b`). Tucson also needs `write` on its Last Will topic,
+`tuya/bridge/availability`. Hoboken's heated-bedding client reads the state and
+publishes only `/set` commands.
+
+```text
+user tucson
+topic read tuya/bed/side_a/set
+topic read tuya/bed/side_a/get
+topic read tuya/bed/side_b/set
+topic read tuya/bed/side_b/get
+topic write tuya/bed/side_a
+topic write tuya/bed/side_a/result
+topic write tuya/bed/side_b
+topic write tuya/bed/side_b/result
+topic write tuya/bed/availability
+topic write tuya/bridge/availability
+topic write tuya/bridge/heartbeat
+
+user hoboken
+topic read tuya/bridge/availability
+topic read tuya/bridge/heartbeat
+topic read tuya/bed/availability
+topic read tuya/bed/side_a
+topic read tuya/bed/side_a/result
+topic write tuya/bed/side_a/set
+topic read tuya/bed/side_b
+topic read tuya/bed/side_b/result
+topic write tuya/bed/side_b/set
+```
+
+Mosquitto's ACL file never denies a subscription: a client without read
+permission gets a successful SUBACK and silently receives nothing, and a denied
+QoS 0 publish is dropped silently. Tucson treats a denied QoS 1 publish as a
+connection failure and reconnects, and the broker checks the Last Will against
+the ACL only when it fires. `tests/test_acl.py` runs the daemon and a
+Hoboken-style client against a real broker with exactly this ACL, so a topic
+change in Tucson fails that test until this list is updated.
+
 ## Release gate
 
 The `Checks` workflow runs on every branch push and pull request. A push to main
