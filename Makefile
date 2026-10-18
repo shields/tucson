@@ -9,7 +9,10 @@ NODE ?= node
 HOBOKEN_SOURCE ?=
 IMAGE_PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 REVISION ?= $(shell git rev-parse HEAD)
-VERSION ?= $(shell ./scripts/gitcalver.sh --dirty -dev)
+# Computed on first use and then fixed, so a check and the build it guards see the
+# same value; a plain assignment, so only the command line can set it, not the
+# environment.
+VERSION = $(eval VERSION := $$(shell ./scripts/gitcalver.sh --dirty -dev))$(VERSION)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD)
 CRANE_VERSION = 0.22.1
 CRANE_SHA256_arm64 = 898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110

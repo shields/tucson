@@ -82,7 +82,7 @@ def client(broker: Broker, user: str) -> aiomqtt.Client:
 
 
 def hoboken_topics() -> list[str]:
-    stanza = documented_acl().split("user hoboken", 1)[1]
+    stanza = documented_acl().split("user hoboken\n", 1)[1].split("\nuser ", 1)[0]
     return re.findall(r"^topic read (\S+)$", stanza, re.MULTILINE)
 
 

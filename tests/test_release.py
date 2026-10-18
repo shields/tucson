@@ -311,6 +311,15 @@ def test_image_build_derives_the_default_version_from_history(
     assert ("--build-arg", f"VERSION={expected}") in build_arguments(directory)
 
 
+def test_image_build_ignores_a_version_from_the_environment(
+    repository: Path, tools: tuple[Path, dict[str, str]]
+) -> None:
+    directory, environment = tools
+    result = make("image", repository, environment | {"VERSION": "1.2"})
+    assert result.returncode == 0
+    assert ("--build-arg", "VERSION=20260102.2") in build_arguments(directory)
+
+
 def test_image_tests_receive_the_version(tools: tuple[Path, dict[str, str]]) -> None:
     directory, environment = tools
     result = make(
