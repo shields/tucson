@@ -39,18 +39,103 @@ adapter to restore the complete configured DP set and request status again. The
 worker remains responsible for checking the usable baseline and freshness before
 advertising availability.
 
+## Status reply matching
+
+TinyTuya reads one frame for each `status()` or `receive()` call and does not
+match frames to commands. A controller’s unsolicited status push (command 8)
+therefore can come back in place of the reply to a status query, with the reply
+still queued behind it. On the PP21KQ (protocol 3.3), two of 88 queries made
+over three minutes while countdown timers ran were answered first by a push
+holding one countdown DP, and the reply followed within 5 to 8 ms. The other 86
+were answered directly, and no reply was missing.
+
+Every status query, in synchronization and in later polls, returns the reply to
+the query it sent. After `status()` the adapter keeps calling `receive()` until
+the last frame TinyTuya read has the command of the query just sent and holds a
+report, or the two-second request deadline passes and the query fails with
+`status report missing`. Each `receive()` waits for the time left until the
+deadline, not for a short slice of it: a read that times out between the pieces
+of a frame discards the part it had read, so a reply that arrives in pieces
+would be lost at the slice boundary. After synchronization the deadline starts
+before the query is sent, so a poll waits about one request timeout for its
+reply. During synchronization it starts when the first call returns, because
+that call also connects and negotiates the session and so does not use up the
+time allowed for the reply. Asking again, after a device22 rejection or a reset
+during synchronization, sends the query with a full request timeout and starts a
+new deadline, so either can add up to two more request timeouts. The reply
+supersedes the pushes read in the meantime, so they are discarded. A queued
+empty heartbeat or write ACK, a read that times out, and an empty frame with the
+query’s command are skipped the same way. When TinyTuya cannot say which query
+was sent, no frame is accepted and the deadline ends the wait, because accepting
+an unrelated frame would return a push as the status.
+
+The adapter runs each `receive()` of the wait with the socket retry limit at
+zero and restores the limit before it asks again. Synchronization uses a limit
+of one. With a limit above zero, a connection reset during `receive()` makes
+TinyTuya reconnect and wait on the new connection, where no query was sent,
+until the deadline passes. At zero the reset is reported at once. After
+synchronization the poll fails with `device operation failed` and the worker
+disconnects and reconnects. During synchronization the adapter asks again once,
+which reconnects and sends the query, so synchronization recovers from the
+reset. A second reset fails synchronization.
+
+The adapter matches the command and not the sequence number. TinyTuya itself
+checks the echo only below protocol 3.5, tuyamock documents that real devices
+echo the request, count globally, or send zero, and the pushes and replies seen
+on the PP21KQ already differ in command. Requiring the echo would make a device
+that does not send it unable to synchronize, while a stale reply with the same
+command cannot arrive on a connection the adapter keeps: it discards the
+connection on any error or timeout and sends a new query only after reading the
+reply to the last one.
+
+Protocol 3.4 with device22 is the exception to the premise that only the reply
+carries the query’s command: TinyTuya sends both writes and status queries as
+command 13 there. A write response that is still queued when a query is sent is
+taken for its reply, and the real reply stays queued behind it until the next
+read. The worker normally reads a write’s response before it polls, but a poll
+or refresh that falls due in the same tick comes first. The PP21KQ is protocol
+3.3 and not device22, and no maintained case writes on a 3.4 device22 device.
+
+When a push precedes the device22 rejection, TinyTuya’s `status()` returns the
+push and the rejection reaches `receive()`, which switches the library to
+device22 and returns its device-type error (908) without asking again. The
+adapter asks again after that error, which restarts detection as if the
+rejection had come first, instead of treating it as a device failure.
+
+The adapter reads the `raw_sent` and `raw_recv` attributes of TinyTuya’s
+`Device` to know which command it sent and which frame it just read. These are
+undocumented internals, but `uv.lock` pins the version and a TinyTuya update
+already requires repeating this qualification. Renaming either attribute fails
+every status query immediately.
+
 ## Maintained cases
 
-| Protocol          | Cases                                                                                                                                                                                                                                                       |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3.3, 3.4, and 3.5 | Initial status; both zone writes; timer/preheat writes; empty heartbeat ACK; idle receive timeout; unsolicited partial push; wrong key; dropped write response; empty write ACK; silent device; connection closure before/after a write; explicit reconnect |
-| 3.3 and 3.4       | Device22 status detection and restoration of the complete requested DP set                                                                                                                                                                                  |
-| 3.4 and 3.5       | Stalled session negotiation                                                                                                                                                                                                                                 |
+| Protocol          | Cases                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.3, 3.4, and 3.5 | Initial status; both zone writes; timer/preheat writes; empty heartbeat ACK; idle receive timeout; unsolicited partial push; pushes ahead of a status reply; status reply arriving in pieces; connection reset while waiting for a status reply; wrong key; dropped write response; empty write ACK; silent device; connection closure before/after a write; explicit reconnect |
+| 3.3 and 3.4       | Device22 status detection and restoration of the complete requested DP set, including a push ahead of the rejection                                                                                                                                                                                                                                                             |
+| 3.4 and 3.5       | Stalled session negotiation                                                                                                                                                                                                                                                                                                                                                     |
 
 A delayed-response case exceeds the request deadline and checks that reconnect
-reads the applied state without another write. A status poll tolerates a queued
-empty heartbeat ACK by receiving until a report or its monotonic deadline. The
-ACK itself does not update state or freshness.
+reads the applied state without another write. A status query tolerates a queued
+empty heartbeat ACK by receiving until the reply to the query or its monotonic
+deadline. The ACK itself does not update state or freshness.
+
+Test support queues zero, one, two, four, or eight countdown pushes, or one
+complete but stale push, ahead of the simulator’s reply to a status query. It
+builds them with the simulator’s own push framing, so it adds no packet encoder
+or cipher. For each protocol, `connect()`, `status()`, `inspect`, and a
+controller’s first tick must return or act on the complete reply, and every case
+asserts that the simulator consumed the pushes queued for its query. A device22
+case on 3.3 and 3.4 puts pushes ahead of the rejection. Pushes with no reply
+fail with `status report missing` at the request deadline. The simulator can
+also send the reply in two writes with a pause longer than the adapter’s receive
+slice between them. A case can reset the connection with the reply withheld
+while the adapter waits: synchronization then recovers on a second connection,
+and a later poll fails at once without reconnecting. Deterministic cases with a
+fake clock and a bounded fake device cover the same loops, the retry limit
+around each wait, and the start of the deadline, so a regression in the deadline
+fails instead of hanging.
 
 Instrumented existing simulator handlers count decoded concrete writes,
 excluding all-null device22 status queries. Fault cases assert one decoded
@@ -60,8 +145,9 @@ without a second write. The simulator uses only synthetic keys and DP fixtures
 with no device identifiers.
 
 Socket timeouts are two seconds in production and idle receive slices are 250
-milliseconds. The integration tests shorten request timeouts for injected faults
-and use bounded events for synchronization. Final worker shutdown bounds,
+milliseconds; the wait for a status reply uses the time left until its deadline
+instead of a slice. The integration tests shorten request timeouts for injected
+faults and use bounded events for synchronization. Final worker shutdown bounds,
 command-confirmation semantics, and actual hardware behavior remain separate
 acceptance gates.
 
@@ -133,9 +219,9 @@ firmware, physical zone orientation, or Home/Siri behavior.
 ## Controller-through-HomeKit qualification
 
 Run `make homekit HOBOKEN_SOURCE=/path/to/hoboken NODE=/path/to/node` with both
-checkouts' frozen dependencies installed. The selected target requires Hoboken's
+checkouts’ frozen dependencies installed. The selected target requires Hoboken’s
 `integration/tucson-roundtrip.ts` driver, the Node.js major version that
-`node-version` sets in Hoboken's `.github/workflows/build.yml`, and the pinned
+`node-version` sets in Hoboken’s `.github/workflows/build.yml`, and the pinned
 Mosquitto executable. It fails when prerequisites are absent.
 
 The three protocol cases use the actual Tucson process and Hoboken bridge,
@@ -150,5 +236,5 @@ The assertions also check that synthetic key/password values do not appear in
 the collected application logs. These cases qualify interoperability between the
 two applications and share the simulator limitations above. They do not
 establish the physical Sunbeam mapping, firmware behavior, or Home/Siri UI
-compatibility. The two repositories' required checks remain separate; run this
+compatibility. The two repositories’ required checks remain separate; run this
 additional target when qualifying their combined revisions.

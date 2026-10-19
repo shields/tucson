@@ -39,11 +39,10 @@ bridge explicitly.
 Copy `config.example.json` to an untracked private configuration file. Replace
 the example device identity/address, verify the protocol version, and name the
 zones in A/B order. The example protocol, 3.3, matches the one observed on the
-Sunbeam PP21KQ controller; confirm it for any other device. Each controller is
-driven by exactly one bridge, even when it has two zones. Run only one bridge
-instance for that set of controllers. Each controller’s optional TCP `port`
-defaults to 6668. Every address and port pair must be unique, so two controllers
-can share an address only on different ports.
+Sunbeam PP21KQ controller; confirm it for any other device. Each controller,
+even one with two zones, is driven by exactly one bridge instance. Each
+controller’s optional TCP `port` defaults to 6668. Every address and port pair
+must be unique, so two controllers can share an address only on different ports.
 
 Use `{"env": "VARIABLE_NAME"}` or `{"file": "/mounted/secret"}` for each local
 key and MQTT password. A local key must be exactly 16 ASCII bytes. Secret files
@@ -63,14 +62,30 @@ network connections.
 
 Inspect a controller with
 `uv run --frozen tuya-mqtt inspect --config /path/to/config.json --controller bed`.
-It can run while the bridge is running, because the controller accepts more than
-one local session. Inspection uses the daemon’s read-only adapter and prints
-sanitized numeric DP data. It issues status queries only; it does not change
-heat, preheat, or timers. While a timer or preheat runs, the controller can
-answer with a countdown push holding only DPs 28, 29, 102, or 103 in place of
-the full status; run it again. Compare the observed data with the
-[hardware acceptance record](hardware-acceptance.md) before enabling production
-writes.
+Inspection uses the daemon’s read-only adapter and prints sanitized numeric DP
+data. It issues status queries only and prints the controller’s reply to the
+last one; it does not change heat, preheat, or timers. While a timer or preheat
+runs, the controller can send a countdown push holding only DPs 28, 29, 102, or
+103 ahead of the reply. The adapter skips pushes until the reply arrives, so the
+output is the controller’s reply and never a push. If the query fails,
+inspection prints no data, writes the error code and message to standard error,
+and exits nonzero. The two-second request deadline for the reply starts after
+the connection is open and negotiated. When frames arrive but none is the reply
+by then, the message is `status report missing`. If the connection is reset
+while the adapter waits, it connects and asks once more, and a second reset
+fails with `device synchronization failed`. When the controller sends nothing at
+all, TinyTuya waits out its two-second read timeout twice and the message is
+`device synchronization failed` after about four seconds, as it is for a refused
+connection or a wrong local key.
+
+The Sunbeam PP21KQ controller (firmware main V2.1.6, MCU V1.0.10, protocol 3.3)
+accepted a second local session while another held its connection, so inspection
+can run beside the bridge for that controller. That evidence comes from one
+controller. TinyTuya’s README and the tuyamock simulator both say Tuya devices
+generally accept one local connection, so confirm that any other device
+tolerates a second session before running `inspect` beside the bridge. Compare
+the observed data with the [hardware acceptance record](hardware-acceptance.md)
+before enabling production writes.
 
 ## Running the daemon
 

@@ -14,11 +14,15 @@ previous reported snapshot for diagnostics. Partial reports merge only within
 that baseline. Online requires known power, heat level, and preheat on both
 zones. Unknown optional telemetry remains unknown.
 
-Complete reports refresh the full-status timestamp, whether received during a
-query or as an unsolicited report. Partial reports update traffic time and
-values without refreshing the full-status age. No countdown is decremented
-between reports. Invalid required fields take the controller offline; invalid
-optional fields remain visible and block commands dependent on those fields.
+Complete reports refresh the full-status timestamp, whether they are the reply
+to a query or an unsolicited report read between queries. Partial reports update
+traffic time and values without refreshing the full-status age. A status query
+yields the controller’s reply to that query: unsolicited reports that precede
+the reply are superseded by it and not applied, and the connection baseline
+starts from the reply, not from a countdown push ahead of it. No countdown is
+decremented between reports. Invalid required fields take the controller
+offline; invalid optional fields remain visible and block commands dependent on
+those fields.
 
 A new MQTT session invalidates queued/pending work and the usable baseline. The
 owner closes the existing connection and establishes a fresh device generation,

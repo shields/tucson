@@ -55,9 +55,11 @@ The ordinary application gate separately enforces 100% line and branch coverage.
 ## Run on the LAN
 
 Run one bridge instance for each set of controllers: two bridges driving one
-controller would fight over its state and each other's command confirmations.
-Read-only inspection can run alongside the bridge, because the controller
-accepts more than one local session. Use the [setup guide](setup.md) to validate
+controller would fight over its state and each other’s command confirmations. On
+the Sunbeam PP21KQ, read-only inspection can run alongside the bridge, because
+that controller accepted a second local session. Tuya devices generally accept
+one local connection, so confirm this for any other device before running
+inspection beside the bridge. Use the [setup guide](setup.md) to validate
 identities, protocol, zone order, and write policy.
 
 Keep configuration and credentials outside the image. Make mounted files

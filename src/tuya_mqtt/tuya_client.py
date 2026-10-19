@@ -1,6 +1,6 @@
 from time import monotonic
 from typing import Protocol, cast
-lazy from collections.abc import Callable, Mapping
+lazy from collections.abc import Callable, Mapping, Sequence
 
 import tinytuya
 
@@ -10,9 +10,20 @@ lazy from .config import ControllerConfig
 
 REQUEST_TIMEOUT = 2.0
 RECEIVE_SLICE = 0.25
+CONNECT_RETRY_LIMIT = 1
+
+
+class Frame(Protocol):
+    @property
+    def cmd(self) -> int: ...
 
 
 class RawDevice(Protocol):
+    @property
+    def raw_sent(self) -> Frame | None: ...
+    @property
+    def raw_recv(self) -> Sequence[Frame]: ...
+
     def set_socketPersistent(self, *, persist: bool) -> None: ...
     def set_socketRetryLimit(self, limit: int) -> None: ...
     def set_socketRetryDelay(self, delay: float) -> None: ...
@@ -56,6 +67,19 @@ def _normalize(result: object) -> dict[str, object] | None:
     return dict(dps)
 
 
+def _answers_query(device: RawDevice) -> bool:
+    sent = device.raw_sent
+    return (
+        sent is not None
+        and bool(device.raw_recv)
+        and device.raw_recv[-1].cmd == sent.cmd
+    )
+
+
+def _is_error(result: object, code: int) -> bool:
+    return isinstance(result, dict) and result.get("Err") == str(code)
+
+
 class TinyTuyaClient:
     def __init__(
         self,
@@ -94,21 +118,20 @@ class TinyTuyaClient:
         )
         self._device = device
         device.set_socketPersistent(persist=True)
-        device.set_socketRetryLimit(1)
+        device.set_socketRetryLimit(CONNECT_RETRY_LIMIT)
         device.set_socketRetryDelay(0)
-        device.set_socketTimeout(self._request_timeout)
         device.set_sendWait(0)
         device.set_retry(retry=False)
         device.set_dpsUsed(dict.fromkeys(REQUIRED_DPS))
         try:
-            result = _normalize(device.status())
+            result = self._query(device, connecting=True)
             # The fault bitmap is optional, so its absence needs no re-query.
             if result is not None and any(
                 dp not in result for dp in REQUIRED_DPS if dp != FAULT_DP
             ):
                 # Device22 detection resets TinyTuya's requested DP set to DP 1.
                 device.set_dpsUsed(dict.fromkeys(REQUIRED_DPS))
-                result = _normalize(device.status())
+                result = self._query(device, connecting=True)
         except OSError, ValueError, BridgeError:
             self.close()
             raise BridgeError(
@@ -122,12 +145,61 @@ class TinyTuyaClient:
         self._connected = True
         return result
 
+    def _query(
+        self, device: RawDevice, *, connecting: bool
+    ) -> dict[str, object] | None:
+        retry_limit = CONNECT_RETRY_LIMIT if connecting else 0
+        retries = retry_limit
+
+        def start() -> float:
+            return self._clock() + self._request_timeout
+
+        def ask() -> object:
+            device.set_socketTimeout(self._request_timeout)
+            return device.status()
+
+        def listen(timeout: float) -> object:
+            device.set_socketTimeout(timeout)
+            # A retry after a connection reset reconnects and waits on the new
+            # socket for a reply to a query that was not sent again.
+            device.set_socketRetryLimit(0)
+            try:
+                return device.receive()
+            finally:
+                device.set_socketRetryLimit(retry_limit)
+
+        deadline = None if connecting else start()
+        result = ask()
+        if deadline is None:
+            # Connecting and negotiating run inside the first call, so they do not
+            # consume the time allowed for the reply to arrive.
+            deadline = start()
+        # TinyTuya returns one frame per call, so a push or an empty ACK can come
+        # back in place of the reply.
+        while True:
+            rejected = _is_error(result, tinytuya.ERR_DEVTYPE)
+            report = None if rejected else _normalize(result)
+            if report is not None and _answers_query(device):
+                return report
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                return None
+            if rejected:
+                # Behind a push, receive() reads the rejection and does not ask again.
+                result = ask()
+            else:
+                result = listen(remaining)
+                if retries and _is_error(result, tinytuya.ERR_CONNECT):
+                    retries -= 1
+                    result = ask()
+                    deadline = start()
+
     def _call(
-        self, operation: Callable[[RawDevice], object]
+        self, operation: Callable[[RawDevice], dict[str, object] | None]
     ) -> dict[str, object] | None:
         device = self._require_device()
         try:
-            return _normalize(operation(device))
+            return operation(device)
         except OSError, ValueError:
             self._connected = False
             raise BridgeError(
@@ -138,49 +210,32 @@ class TinyTuyaClient:
             raise
 
     def status(self) -> dict[str, object]:
-        deadline = self._clock() + self._request_timeout
-
-        def query(device: RawDevice) -> object:
-            device.set_socketTimeout(self._request_timeout)
-            return device.status()
-
-        result = self._call(query)
-        # Empty ACKs may precede the status report on a persistent connection.
-        while result is None:
-            remaining = deadline - self._clock()
-            if remaining <= 0:
-                break
-
-            def read(device: RawDevice, timeout: float = remaining) -> object:
-                device.set_socketTimeout(min(timeout, self._receive_slice))
-                return device.receive()
-
-            result = self._call(read)
+        result = self._call(lambda device: self._query(device, connecting=False))
         if result is None:
             self._connected = False
             raise BridgeError(ErrorCode.CONNECTION_LOST, "status report missing")
         return result
 
     def receive(self) -> dict[str, object] | None:
-        def read(device: RawDevice) -> object:
+        def read(device: RawDevice) -> dict[str, object] | None:
             device.set_socketTimeout(self._receive_slice)
-            return device.receive()
+            return _normalize(device.receive())
 
         return self._call(read)
 
     def heartbeat(self) -> None:
-        def send(device: RawDevice) -> object:
+        def send(device: RawDevice) -> dict[str, object] | None:
             device.set_socketTimeout(self._request_timeout)
-            return device.heartbeat(nowait=True)
+            return _normalize(device.heartbeat(nowait=True))
 
         self._call(send)
 
     def write(self, dps: dict[str, Value | str]) -> None:
-        def send(device: RawDevice) -> object:
+        def send(device: RawDevice) -> dict[str, object] | None:
             device.set_socketTimeout(self._request_timeout)
             # The synchronous multi-DP helper retries failed writes one DP at a time.
             payload = device.generate_payload(tinytuya.CONTROL, dps)
-            return device.send(payload)
+            return _normalize(device.send(payload))
 
         self._call(send)
 

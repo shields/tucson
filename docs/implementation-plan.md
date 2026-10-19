@@ -99,12 +99,38 @@ the established synchronous API. The newer experimental Monitor API is
 unnecessary here. [Release](https://pypi.org/project/tinytuya/1.20.0/),
 [TinyTuya design](https://github.com/jasonacox/tinytuya/blob/v1.20.0/DESIGN.md).
 
+TinyTuya reads one frame for each `status()` or `receive()` call and does not
+match frames to commands, so a controller’s unsolicited status push can come
+back in place of the reply to a status query while the reply stays queued behind
+it. The adapter treats a frame as the reply only when its command equals the
+command it sent, and keeps receiving until that frame arrives or the request
+deadline passes. Each wait lasts for the time left until the deadline, not for
+an idle receive slice, because a read that times out inside a frame discards the
+part it had read. The deadline starts before the query is sent once the
+connection is synchronized, and after the first call during synchronization,
+which also connects and negotiates. The waits run with the socket retry limit at
+zero, so a connection reset is reported at once and TinyTuya does not reconnect
+and wait for a reply to a query it did not send again; synchronization, which
+otherwise runs with a limit of one, asks again once after such a reset. It does
+not also require the sequence number to match; the
+[adapter qualification](adapter-qualification.md) records why. This relies on
+the `raw_sent` and `raw_recv` attributes of TinyTuya’s `Device`, which are
+undocumented, so an update to the pinned version must repeat the adapter
+qualification. The synchronization query and every later status query return
+only the reply.
+
 ## Configuration and setup
 
 Provide `validate-config`, `inspect`, and `run` subcommands. `inspect` performs
-a read-only status query through the same adapter and prints sanitized DP data.
-The controller accepts more than one local session, so it can run alongside the
-bridge.
+a read-only status query through the same adapter and prints sanitized DP data:
+the controller’s reply to that query, with any unsolicited pushes that precede
+it skipped. If no reply arrives it prints no data, reports the error on standard
+error, and exits nonzero. The Sunbeam PP21KQ (firmware main V2.1.6, MCU V1.0.10,
+protocol 3.3) accepted a second local session while another held its connection,
+so on that controller `inspect` can run alongside the bridge. That evidence
+comes from one controller, and TinyTuya’s README and the tuyamock simulator both
+say Tuya devices generally accept one local connection. Confirm that any other
+device tolerates a second session before running `inspect` beside the bridge.
 
 Configuration includes MQTT host/port, a stable unique client ID, topic prefix,
 TLS settings when applicable, HTTP bind address/port, and a list of controllers.
@@ -320,12 +346,12 @@ stopping. Configuration/profile faults remain visible errors. A successful TCP
 connect alone does not make the controller online.
 
 On connection, request the complete configured DP set through TinyTuya, validate
-it, publish a baseline, and begin accepting commands. While online, process
-device pushes, schedule heartbeats, and periodically query status. Command
-traffic must not starve reads or heartbeats. On disconnect or stale required
-state, publish offline, invalidate pending work, and retry connection with
-bounded exponential backoff and jitter. Reset backoff after synchronization, not
-merely after a socket opens.
+the reply to that request, publish a baseline, and begin accepting commands.
+While online, process device pushes, schedule heartbeats, and periodically query
+status. Command traffic must not starve reads or heartbeats. On disconnect or
+stale required state, publish offline, invalidate pending work, and retry
+connection with bounded exponential backoff and jitter. Reset backoff after
+synchronization, not merely after a socket opens.
 
 The following are starting defaults to measure and tune during qualification:
 
@@ -523,13 +549,14 @@ for this client. Record that limitation; do not claim these tests prove hardware
 compatibility.
 [Emulator implementation and limitations](https://github.com/3735943886/tuyamock).
 
-Cover initial status, unsolicited partial updates, simultaneous zone activity,
-empty acknowledgments, delayed/missing responses, wrong key, connection closure
-before and after a write, stalled negotiation where applicable, and reconnect.
-Instrument decoded write counts and order to enforce the retry policy. Exercise
-all methods the adapter uses, including timer and preheat commands. Test at
-least the actual protocol version on the deployed Python version; advertise
-additional protocol support only when it has a maintained test case.
+Cover initial status, unsolicited partial updates, pushes queued ahead of a
+status reply, simultaneous zone activity, empty acknowledgments, delayed/missing
+responses, wrong key, connection closure before and after a write, stalled
+negotiation where applicable, and reconnect. Instrument decoded write counts and
+order to enforce the retry policy. Exercise all methods the adapter uses,
+including timer and preheat commands. Test at least the actual protocol version
+on the deployed Python version; advertise additional protocol support only when
+it has a maintained test case.
 
 Use existing emulator controls or a transport fault injector for stalls and
 drops. Add small test support around them if needed, without implementing a

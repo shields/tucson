@@ -1,11 +1,12 @@
 # Hardware acceptance
 
 Status: in progress. Read-only observations and physical-control tests from
-2026-10-12, and power, level, timer, and preheat writes through the adapter on
-2026-10-13, are recorded below. The bridge daemon ran a command sequence against
-the controller on 2026-10-13, recorded under
-[Bridge daemon smoke test](#bridge-daemon-smoke-test), but production
-compatibility remains unproven until this record is complete.
+2026-10-12, power, level, timer, and preheat writes through the adapter on
+2026-10-13, and timer expiry, the presence window, preheat on side B, and every
+level on both sides through the adapter on 2026-10-18 are recorded below. The
+bridge daemon ran a command sequence against the controller on 2026-10-13,
+recorded under [Bridge daemon smoke test](#bridge-daemon-smoke-test), but
+production compatibility remains unproven until this record is complete.
 
 ## Available evidence
 
@@ -30,8 +31,11 @@ The candidate DP map and timer enum table come from
 The read-only observations below agree with it for every mapped field, and the
 controller reports `Stay_On` as 86,400 seconds, consistent with the manual’s
 24-hour setting. Writes through the adapter are recorded under
-[Write behavior](#write-behavior), and the daemon’s first run under
-[Bridge daemon smoke test](#bridge-daemon-smoke-test).
+[Write behavior](#write-behavior), the daemon’s first run under
+[Bridge daemon smoke test](#bridge-daemon-smoke-test), the timer expiry and
+presence window runs under [Live runs of 2026-10-18](#live-runs-of-2026-10-18),
+and the level sweep under
+[Level sweep of 2026-10-18](#level-sweep-of-2026-10-18).
 
 Tuya’s cloud data model for this controller (the “thing model” returned by
 `/v2.0/cloud/thing/<device id>/model` through TinyTuya’s `Cloud` class) declares
@@ -74,10 +78,21 @@ more than the standard instruction set that TinyTuya’s wizard saves:
 | 26, 27   | Auto-off, A and B     | `10h` by default. Writes verified all 21 values on both sides; side A spells 7.5 hours `7h30` and side B `7h30m`.                                                                                                                   |
 | 28, 29   | Remaining seconds     | Resets to the selected duration when the timer changes, then falls by 60 once a minute while the side is on (36,000, 35,940, …).                                                                                                    |
 | 102, 103 | Preheat remaining     | 1,800 when preheat starts and 0 when it ends.                                                                                                                                                                                       |
-| 1, 4, 8  | Combined controls     | DPs 1 and 8 followed the selected zone’s power and preheat; DP 4 did not change when only the selected zone changed. Not used.                                                                                                      |
+| 1, 4, 8  | Combined controls     | DP 1 was true while either side was on, DP 8 while side B preheated, and DP 4 repeated the level last set on either side. Not used.                                                                                                 |
 | 13       | Fault bitmap          | 13 bits with no known meanings; 0 throughout. Reported as `fault_code`.                                                                                                                                                             |
 | 104      | Presence confirmation | `User_Confirmation` while idle. Turning side A on from the app stepped it through `45_Minutes_Before`, `15_Minutes_Left`, and `One_Hour_Later` (see below); the check button and a LAN power-off both restored `User_Confirmation`. |
 | 105      | Selected zone         | `ZONE_A` or `ZONE_B`, following the side most recently operated on the controller or in the app.                                                                                                                                    |
+
+The 2026-10-18 logs show how the combined DPs relate to the two sides. DP 1 was
+true whenever either side was on (A alone, B alone, or both) and false when both
+were off, and it stayed true when side A’s timer turned A off while B was on. DP
+8 was true while side B was preheating and false otherwise; no preheat on side A
+is in those logs, so whether side A sets it is not recorded there. DP 4 repeated
+the level most recently set on either side, including the level the one-hour
+rule lowered, and did not show the preheat level. None of them followed DP 105,
+which read `ZONE_A` in all 88 status queries of the probe, after side B had been
+turned on and set to preheat through the adapter, so writes to side B over the
+LAN did not select it.
 
 The profile does not use DPs 1, 4, 8, 104, or 105. DP 13 is published as
 `fault_code` without interpretation and does not affect availability.
@@ -94,11 +109,19 @@ The profile does not use DPs 1, 4, 8, 104, or 105. DP 13 is published as
   repeated twice on side A and once on side B.
 - The Smart Life app and the local connection operated at the same time without
   disconnecting one another.
-- On 2026-10-18 a second local session opened while another held its connection.
-  Both completed the handshake, read status every 10 seconds for 90 seconds, and
-  received the controller’s pushes, and neither was disconnected, so the
-  controller accepts at least two simultaneous local sessions. A status request
-  on either session can return an unrelated push in place of the reply.
+- On 2026-10-18 a second local session connected while the live test held its
+  own (see [Live runs of 2026-10-18](#live-runs-of-2026-10-18)). The second
+  session read status every 10 seconds for 90 seconds, received pushes, and was
+  not disconnected, and the live test’s polls kept completing every 30 seconds,
+  so this controller accepted a second simultaneous local session. The live test
+  reconnects without logging, so its own log cannot show whether the first
+  session dropped.
+- A probe on a second session during run 2 of the live test sent 88 DP queries
+  over three minutes. For 86 of them, the reply (command 10, echoing the query’s
+  sequence number) arrived first. For two, a countdown push (command 8, sequence
+  number 0) arrived first, TinyTuya’s `status()` returned its single DP (103
+  or 29) as the result, and the reply followed within 5 to 8 ms. No reply was
+  missing.
 
 ### Remote activation and presence confirmation
 
@@ -115,9 +138,10 @@ Side B was off and had not been activated remotely, yet its stored level was
 lowered as well. The cap applies to every zone’s selected level, and the
 controller reports it as ordinary state with no separate flag. Pressing the
 check button returned DP 104 to `User_Confirmation`, after which level 6 could
-be set. An explicit power write over the LAN also starts the window, but the cap
-after a window started that way has not been observed. A level or preheat write
-that turns a side on starts no window, and a level write that did so held its
+be set. An explicit power write over the LAN also started the window, and the
+cap followed an hour later (see
+[Live runs of 2026-10-18](#live-runs-of-2026-10-18)). A level or preheat write
+that turned a side on started no window, and a level write that did so held its
 level past one hour (see [Write behavior](#write-behavior)).
 
 ### Write behavior
@@ -149,7 +173,8 @@ Writes were acknowledged by unsolicited reports within about 0.3 seconds.
   side stayed on. It was still on eight minutes later, when the test turned it
   off. The side’s auto-off timer counted down through the preheat and kept
   running afterwards, and a timer write during preheat was accepted. Preheat
-  started no presence window.
+  started no presence window. Side B is covered under
+  [Live runs of 2026-10-18](#live-runs-of-2026-10-18).
 - **The presence window starts on an explicit power write.** Writing power on
   over the LAN set DP 104 to `45_Minutes_Before`, and power off returned it to
   `User_Confirmation`. Turning a side on through a level or preheat write
@@ -157,7 +182,8 @@ Writes were acknowledged by unsolicited reports within about 0.3 seconds.
   that level for 62 minutes with DP 104 at `User_Confirmation` throughout, so
   the cap did not apply either. The worker still sends an explicit power-on
   ahead of a level for a side that is off, which leaves the firmware’s presence
-  check in force; the cap after a window started that way has not been observed.
+  check in force; the cap after a window started that way is recorded under
+  [Live runs of 2026-10-18](#live-runs-of-2026-10-18).
 
 ### Bridge daemon smoke test
 
@@ -181,6 +207,76 @@ daemon exited with code 0 on SIGTERM.
   confirmed.
 - Each `command_write` log event recorded the exact packet before it was sent.
 
+### Live runs of 2026-10-18
+
+On 2026-10-18 (local date; the logs are in UTC, from 23:01 that day to 00:42 the
+next) two back-to-back runs wrote to the controller through the adapter’s
+`write` method. They ran from the published image
+`ghcr.io/shields/tucson:20261018.4` (revision `25d608b`) with Python 3.15.0 and
+TinyTuya 1.20.0. A script sent a heartbeat every 10 seconds, polled status every
+30 seconds, and logged every change except the countdowns. Both sides were off
+at the start, with stored levels of 6 on side A and 4 on side B. The controller
+and the test host kept their Internet access throughout the 2026-10-18 runs,
+including the level sweep below.
+
+**Run 1 (62 minutes).** The test wrote the packet the worker sends for a
+power-on at level 5 to side B, `{15: true, 21: level_5}`, the only write in
+either run with more than one DP. A few seconds later it wrote a 1h30m auto-off
+to side B as a backstop, turned side A on with a level 1 write, and gave side A
+a 30-minute timer. It then watched both sides for 62 minutes.
+
+| Time after the power write | Reported change                                                                                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 minutes                  | DP 104 became `45_Minutes_Before` within 0.4 s of the write, with the power and level reports.                                                                             |
+| 45 minutes                 | DP 104 became `15_Minutes_Left`.                                                                                                                                           |
+| 60 minutes                 | DP 104 became `One_Hour_Later`, and within 22 ms the level on DP 21 (**side B**) dropped from `level_5` to `level_4` and DP 4 (combined) rose from `level_1` to `level_4`. |
+| About 62 minutes           | The test turned side B off. DP 104 returned to `User_Confirmation`, and DP 27 returned to `10h`.                                                                           |
+
+The one-hour cap followed a power-on written over the LAN, as it did after one
+from the app. Side B’s 1h30m backstop was still counting down when the test
+turned the side off. Side A was at level 1 by then, so whether a window started
+over the LAN also lowers the other side’s level was not tested.
+
+Side A, turned on by the level 1 write, turned itself off 30 minutes after the
+timer write, to within a second; DP 28 had counted down from 1,800 seconds, by
+60 each minute. When the side turned off, DP 26 returned to `10h` within 5 ms,
+DP 28 read 36,000, and the level stayed `level_1`.
+
+**Run 2 (38 minutes).** The test wrote `level_1` to side B, which turned the
+side on, then wrote power off and confirmed that side B was off at level 1. It
+wrote preheat on (`{25: true}`) and, two seconds later, a 1h30m backstop.
+
+- The level 1 write turned side B on and started no presence window.
+- Preheat written while side B was off turned it on at level 10, set DP 8 and DP
+  25, and started DP 103 at 1,800 seconds.
+- Preheat ended 30 minutes after it started (29 minutes 59.7 seconds between the
+  start and end reports): DP 25 became false, the level on DP 21 returned from
+  `level_10` to the stored `level_1` within 12 ms, and DP 8 cleared. Side B
+  stayed on, and the test turned it off eight minutes later.
+- Side B’s 1h30m auto-off counted down through the preheat and kept running
+  afterwards, from 5,400 seconds to 3,180 when the test turned the side off.
+- DP 104 stayed `User_Confirmation` through the whole run, so neither the level
+  1 write nor the preheat from off started a window. These are the only cases
+  tried in this run. The power write with level 5 in run 1 started a window, and
+  the level 1 write and the preheat from off did not.
+
+At the end of the runs both sides were off, with the stored levels restored to
+their starting values: level 6 on side A and level 4 on side B.
+
+### Level sweep of 2026-10-18
+
+Later that evening (01:13 to 01:49 UTC) a script wrote every level to each side
+through the adapter’s `write` method. It ran from the published image
+`ghcr.io/shields/tucson:20261018.4`, while the deployed bridge, with write mode
+disabled, held its own session. In three passes (levels 7 to 9, then 10, then 1
+to 6) it stepped side A through the pass’s levels in order, waiting for the
+controller to report each level before writing the next, and then turned side A
+off; it then did the same for side B. The first level written to each side in a
+pass turned that side on, and the later levels found it already on. Every level
+write was reported back within a second, and power off kept the last level
+written. Each pass ended by writing the stored levels back and turning both
+sides off, leaving level 6 on side A and level 4 on side B.
+
 ## Qualification record
 
 Record the date, physical model, controller firmware, actual protocol version,
@@ -191,15 +287,15 @@ device/account identifiers and real local keys.
 | Requirement                                                               | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Device identity, firmware, and local protocol                             | Verified: style PP21KQ, main module V2.1.6, MCU module V1.0.10, protocol 3.3                                                                                                                                                                                                                                                                                                                                                                          |
-| A/B orientation and required reported fields                              | Partial: required fields are reported, and the controller’s A and B map to the A and B DPs. The manual puts A on the left of the bed; that is not yet checked against the physical bed.                                                                                                                                                                                                                                                               |
-| Power and all 10 levels independently on each side                        | Partial: power verified on both sides from the controller and the adapter; levels 2, 3, 4, and 6 were written and read back. The full sweep of all 10 levels is pending.                                                                                                                                                                                                                                                                              |
+| A/B orientation and required reported fields                              | Partial: required fields are reported, and the controller’s A and B map to the A and B DPs. The manual puts A on the left of the bed and B on the right; which side of the bed each zone heats is not yet recorded.                                                                                                                                                                                                                                   |
+| Power and all 10 levels independently on each side                        | Verified: power on both sides from the controller and the adapter, and every level from 1 to 10 written through the adapter and read back on each side (see [Level sweep of 2026-10-18](#level-sweep-of-2026-10-18)).                                                                                                                                                                                                                                 |
 | Every supported timer enum and `Stay_On` duration                         | Verified: all 21 values were echoed with the matching remaining time on both sides, including `Stay_On` at 86,400 seconds. Side A spells 7.5 hours `7h30` and side B `7h30m`; an unrecognized value is ignored and resets the remaining time to 86,400 seconds.                                                                                                                                                                                       |
 | Level selection for a side that is off                                    | Verified: the firmware turns a side on when a level is written, even with power off in the same packet, so a level cannot be selected while a side stays off. The worker therefore sends a level for a side that is off with an explicit power-on.                                                                                                                                                                                                    |
 | Power-off/on preserves the selected level                                 | Verified: power off from the adapter kept the level, and power on alone resumed at it.                                                                                                                                                                                                                                                                                                                                                                |
 | Verified individual-write ordering or multi-DP behavior                   | Verified: `multi_dp` applies power, timer, and level in one packet. In the smoke test the daemon sent every command that reached the controller as one packet. A timer must accompany or follow power because the firmware ignores it for a side that is off, and a level write turns the side on.                                                                                                                                                    |
-| Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified from the controller on both sides and from the adapter on side A, with level 10 and 1,800 seconds while active. Preheat on side A while it was off turned it on at level 10 and started no presence window. It ended exactly 30 minutes later, returning to the stored level with the side still on, and the auto-off timer ran through it. Adapter writes and completion on side B are pending.        |
+| Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified from the controller on both sides and from the adapter on side A. Preheat written from off turned either side on at level 10 with 1,800 seconds remaining, started no presence window, and ended 30 minutes later by returning to the stored level with the side still on and the auto-off timer running through it. Cancelling preheat through the adapter on side B is pending.                       |
 | Physical controls reflected in reported state                             | Verified for power, heat level, and preheat on both sides                                                                                                                                                                                                                                                                                                                                                                                             |
-| Timer expiry and remote presence-confirmation behavior                    | Partial: after an app activation, the one-hour rule lowered level 5 to level 4 on both zones, and pressing the check button returned DP 104 to `User_Confirmation`, after which level 6 could be set. A level write that turned a side on started no window, and level 5 held for 62 minutes. An explicit power write over the LAN starts the window, but the cap after a window started that way has not been observed, and timer expiry is pending. |
+| Timer expiry and remote presence-confirmation behavior                    | Partial: the one-hour rule lowered level 5 to level 4 after an app activation (both zones) and after a LAN power-on at level 5 (side B); the check button or power-off returned DP 104 to `User_Confirmation`. Level writes (level 5 held for 62 minutes) and a preheat from off started no window. A 30-minute timer expired on side A, turning it off and resetting its timer setting to `10h`. Expiry of other durations and on side B is pending. |
 | Cold boot, Wi-Fi, bridge, and broker interruption/recovery                | Pending                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Home/Siri controls, inactive speed display, errors, and recovery          | Pending                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Seven consecutive days with controller and bridge Internet access blocked | Pending                                                                                                                                                                                                                                                                                                                                                                                                                                               |

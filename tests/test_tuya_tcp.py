@@ -1,13 +1,18 @@
+import json
 import socket
 import threading
 from contextlib import suppress
 from time import monotonic
 lazy from collections.abc import Callable, Iterator
+lazy from pathlib import Path
+lazy from typing import Any
 
 import pytest
+import tinytuya
 from tuyamock import MockDevice
 
-from tuya_mqtt.controller import ControllerWorker
+from tuya_mqtt.__main__ import main
+from tuya_mqtt.controller import ControllerCore, ControllerWorker, Mailbox
 from tuya_mqtt.domain import BridgeError, Completion, Outcome
 from tuya_mqtt.profiles.sunbeam import parse_command
 from tuya_mqtt.tuya_client import TinyTuyaClient
@@ -19,17 +24,57 @@ lazy from .tcp import Simulator
 
 pytestmark = pytest.mark.integration
 
+VERSIONS = ["3.3", "3.4", "3.5"]
+COUNTDOWN_DPS = ("28", "29", "102", "103")
+
+
+def countdown_pushes(count: int) -> list[dict[str, object]]:
+    return [{COUNTDOWN_DPS[number % 4]: 9000 - number} for number in range(count)]
+
+
+PUSH_SETS = [
+    *(
+        pytest.param(countdown_pushes(count), id=f"{count}-pushes")
+        for count in (0, 1, 2, 4, 8)
+    ),
+    pytest.param([{**BASELINE, "14": True, "20": "level_9"}], id="complete-stale-push"),
+]
+
+
+def connected_to(
+    simulator: Simulator,
+    controller_config: ControllerConfig,
+    request_timeout: float,
+    receive_slice: float = 0.25,
+) -> TinyTuyaClient:
+    config = controller_config.model_copy(
+        update={"ip": "127.0.0.1", "protocol_version": simulator.mock.config.version}
+    )
+    return TinyTuyaClient(
+        config,
+        KEY,
+        port=simulator.mock.port,
+        request_timeout=request_timeout,
+        receive_slice=receive_slice,
+    )
+
 
 @pytest.fixture
 def tcp_client(
     simulator: Simulator, controller_config: ControllerConfig
 ) -> Iterator[TinyTuyaClient]:
-    config = controller_config.model_copy(
-        update={"ip": "127.0.0.1", "protocol_version": simulator.mock.config.version}
-    )
-    client = TinyTuyaClient(
-        config, KEY, port=simulator.mock.port, request_timeout=0.2, receive_slice=0.25
-    )
+    client = connected_to(simulator, controller_config, 0.2)
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+@pytest.fixture
+def patient_client(
+    simulator: Simulator, controller_config: ControllerConfig
+) -> Iterator[TinyTuyaClient]:
+    client = connected_to(simulator, controller_config, 10, 0.05)
     try:
         yield client
     finally:
@@ -186,6 +231,190 @@ def test_device22_requests_full_profile(
             client.close()
 
 
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+@pytest.mark.parametrize("pushes", PUSH_SETS)
+def test_connect_returns_the_reply_after_pushes(
+    pushes: list[dict[str, object]],
+    simulator: Simulator,
+    patient_client: TinyTuyaClient,
+) -> None:
+    simulator.preludes.append(pushes)
+    assert patient_client.connect() == BASELINE
+    assert simulator.pushed == pushes
+    assert patient_client.receive() is None
+    assert simulator.mock.server.connections == 1
+
+
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+@pytest.mark.parametrize("pushes", PUSH_SETS)
+def test_status_returns_the_reply_after_pushes(
+    pushes: list[dict[str, object]],
+    simulator: Simulator,
+    patient_client: TinyTuyaClient,
+) -> None:
+    assert patient_client.connect() == BASELINE
+    simulator.preludes.append(pushes)
+    assert patient_client.status() == BASELINE
+    assert simulator.pushed == pushes
+    assert patient_client.receive() is None
+    assert simulator.mock.server.connections == 1
+
+
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+def test_status_skips_a_write_response_that_is_still_queued(
+    simulator: Simulator, patient_client: TinyTuyaClient
+) -> None:
+    assert patient_client.connect() == BASELINE
+    patient_client.write({"20": "level_7", "14": True})
+    assert patient_client.status() == simulator.mock.dps
+    assert simulator.mock.dps["20"] == "level_7"
+    assert patient_client.receive() is None
+
+
+@pytest.fixture
+def bounded_receives(monkeypatch: pytest.MonkeyPatch) -> None:
+    receive = tinytuya.Device.receive
+    reads = 0
+
+    def bounded(device: tinytuya.Device) -> object:
+        nonlocal reads
+        reads += 1
+        if reads > 20:
+            pytest.fail("the reply wait outlived its deadline")
+        return receive(device)
+
+    monkeypatch.setattr(tinytuya.Device, "receive", bounded)
+
+
+@pytest.mark.usefixtures("bounded_receives")
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+@pytest.mark.parametrize("operation", ["connect", "status"])
+def test_pushes_without_a_reply_fail_at_the_deadline(
+    operation: str, simulator: Simulator, tcp_client: TinyTuyaClient
+) -> None:
+    if operation == "status":
+        tcp_client.connect()
+    simulator.mode = "drop_query_reply"
+    pushes = countdown_pushes(2)
+    simulator.preludes.append(pushes)
+    with pytest.raises(BridgeError, match="status report missing"):
+        getattr(tcp_client, operation)()
+    assert simulator.pushed == pushes
+
+
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+@pytest.mark.parametrize("operation", ["connect", "status"])
+def test_a_reply_arriving_in_pieces_is_not_discarded(
+    operation: str, simulator: Simulator, patient_client: TinyTuyaClient
+) -> None:
+    if operation == "status":
+        patient_client.connect()
+    pushes = countdown_pushes(1)
+    simulator.preludes.append(pushes)
+    simulator.split_gap = 0.3
+    assert getattr(patient_client, operation)() == BASELINE
+    assert simulator.pushed == pushes
+    assert patient_client.receive() is None
+    assert simulator.mock.server.connections == 1
+
+
+@pytest.fixture
+def reset_when_waiting(simulator: Simulator, monkeypatch: pytest.MonkeyPatch) -> None:
+    receive = tinytuya.Device.receive
+    pending = True
+
+    def reset_then_receive(device: tinytuya.Device) -> object:
+        nonlocal pending
+        if pending:
+            pending = False
+            simulator.reset()
+            simulator.mode = "normal"
+        return receive(device)
+
+    monkeypatch.setattr(tinytuya.Device, "receive", reset_then_receive)
+
+
+@pytest.mark.usefixtures("reset_when_waiting")
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+def test_connect_recovers_from_a_reset_while_waiting_for_the_reply(
+    simulator: Simulator, patient_client: TinyTuyaClient
+) -> None:
+    pushes = countdown_pushes(1)
+    simulator.preludes.append(pushes)
+    simulator.mode = "drop_query_reply"
+    assert patient_client.connect() == BASELINE
+    assert simulator.pushed == pushes
+    assert simulator.mock.server.connections == 2
+    assert patient_client.receive() is None
+
+
+@pytest.mark.usefixtures("reset_when_waiting")
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+def test_status_surfaces_a_reset_while_waiting_for_the_reply(
+    simulator: Simulator, patient_client: TinyTuyaClient
+) -> None:
+    patient_client.connect()
+    simulator.preludes.append(countdown_pushes(1))
+    simulator.mode = "drop_query_reply"
+    with pytest.raises(BridgeError, match="device operation failed"):
+        patient_client.status()
+    with pytest.raises(BridgeError, match="not synchronized"):
+        patient_client.status()
+    assert simulator.mock.server.connections == 1
+
+
+@pytest.mark.parametrize("simulator", ["3.3", "3.4"], indirect=True)
+@pytest.mark.parametrize("count", [1, 2])
+def test_device22_is_detected_behind_pushes(
+    count: int, simulator: Simulator, patient_client: TinyTuyaClient
+) -> None:
+    simulator.mock.config.dev22 = True
+    pushes = countdown_pushes(count)
+    simulator.preludes.append(pushes)
+    assert patient_client.connect() == BASELINE
+    assert simulator.pushed == pushes
+    assert simulator.rejected_queries == 1
+    assert simulator.mock.server.connections == 1
+    assert patient_client.status() == BASELINE
+
+
+@pytest.mark.parametrize("simulator", ["3.3", "3.4"], indirect=True)
+@pytest.mark.parametrize("seqno_mode", ["zero", "global"])
+def test_connect_returns_the_reply_when_the_device_does_not_echo_the_sequence(
+    seqno_mode: str, simulator: Simulator, patient_client: TinyTuyaClient
+) -> None:
+    simulator.mock.config.seqno_mode = seqno_mode
+    pushes = countdown_pushes(2)
+    simulator.preludes.append(pushes)
+    assert patient_client.connect() == BASELINE
+    assert simulator.pushed == pushes
+
+
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+def test_inspect_prints_the_reply_after_pushes(
+    simulator: Simulator,
+    config_path: Path,
+    config_data: dict[str, Any],
+    secret_env: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_data["controllers"][0] |= {
+        "ip": "127.0.0.1",
+        "port": simulator.mock.port,
+        "protocol_version": simulator.mock.config.version,
+    }
+    config_path.write_text(json.dumps(config_data))
+    for name, value in secret_env.items():
+        monkeypatch.setenv(name, value)
+    pushes = countdown_pushes(4)
+    simulator.preludes.append(pushes)
+    status = main(["inspect", "--config", str(config_path), "--controller", "bed"])
+    assert status == 0
+    assert json.loads(capsys.readouterr().out) == BASELINE
+    assert simulator.pushed == pushes
+
+
 def wait_worker(predicate: Callable[[], bool], worker: ControllerWorker) -> None:
     deadline = monotonic() + 3
     pause = threading.Event()
@@ -207,7 +436,9 @@ def collect_completion(worker: ControllerWorker) -> Completion:
     return results[0]
 
 
-def worker_for(simulator: Simulator, config: ControllerConfig) -> ControllerWorker:
+def worker_for(
+    simulator: Simulator, config: ControllerConfig, request_timeout: float = 0.2
+) -> ControllerWorker:
     config = config.model_copy(
         update={
             "ip": "127.0.0.1",
@@ -218,13 +449,58 @@ def worker_for(simulator: Simulator, config: ControllerConfig) -> ControllerWork
     worker = ControllerWorker(
         config,
         lambda: TinyTuyaClient(
-            config, KEY, port=simulator.mock.port, request_timeout=0.2
+            config, KEY, port=simulator.mock.port, request_timeout=request_timeout
         ),
         logger=Log(),
     )
     worker.set_session("session")
     worker.start()
     return worker
+
+
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+def test_controller_core_is_online_after_its_first_tick_despite_pushes(
+    simulator: Simulator, controller_config: ControllerConfig
+) -> None:
+    config = controller_config.model_copy(
+        update={"ip": "127.0.0.1", "protocol_version": simulator.mock.config.version}
+    )
+    mailbox = Mailbox()
+    core = ControllerCore(
+        config,
+        lambda: TinyTuyaClient(
+            config, KEY, port=simulator.mock.port, request_timeout=10
+        ),
+        mailbox,
+        logger=Log(),
+    )
+    mailbox.set_session("session")
+    pushes = countdown_pushes(4)
+    simulator.preludes.append(pushes)
+    try:
+        core.tick()
+        assert core.view.online
+        assert core.view.last_full_status is not None
+        assert simulator.pushed == pushes
+        assert simulator.mock.server.connections == 1
+    finally:
+        core.stop()
+
+
+@pytest.mark.parametrize("simulator", VERSIONS, indirect=True)
+def test_worker_goes_online_despite_pushes_ahead_of_the_first_reply(
+    simulator: Simulator, controller_config: ControllerConfig
+) -> None:
+    pushes = countdown_pushes(4)
+    simulator.preludes.append(pushes)
+    worker = worker_for(simulator, controller_config, request_timeout=10)
+    try:
+        wait_worker(lambda: worker.snapshot.online, worker)
+        assert simulator.pushed == pushes
+        assert simulator.mock.server.connections == 1
+    finally:
+        worker.stop()
+        worker.join(3)
 
 
 @pytest.mark.parametrize("simulator", ["3.3", "3.4", "3.5"], indirect=True)
