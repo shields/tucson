@@ -67,7 +67,7 @@ targeted `N802` exclusion. Simulator instrumentation uses an existing decoded
 control handler and transport socket for fault injection, with a file-specific
 `SLF001` exclusion. Application code calls only TinyTuya’s public methods and
 reads the undocumented `raw_sent` and `raw_recv` attributes of `Device` to match
-a status reply to its query and a control acknowledgement to its write; a
+a status reply to its query and a control acknowledgment to its write; a
 TinyTuya update must repeat the
 [adapter qualification](adapter-qualification.md), which records the dependency.
 
@@ -77,9 +77,9 @@ audit, including online checks.
 
 JSON configuration uses the standard library’s duplicate-key check and
 Pydantic’s strict, frozen models. Configuration and JSON errors omit supplied
-values and secret-file contents. Controller zones are ordered A then B; this
-records protocol side identifiers while physical orientation remains a
-qualification requirement.
+values and secret-file contents. The `sunbeam-dual` profile orders its zones A
+then B; this records protocol side identifiers while physical orientation
+remains a qualification requirement.
 
 Writes default to disabled. The worker sends each command as one multi-DP write
 once `write_mode` is `multi_dp`, which hardware testing verified on the PP21KQ.
@@ -103,7 +103,13 @@ restored the initial position. Sanitized fixtures and TCP tests cover the
 protocol-3.3 ACK path. Other protocols are rejected for this profile. The
 general synthetic curtain profile remains confined to tests.
 
+Read-only inspection, polling, and reconnection with the merged adapter passed
+on October 19. The motor’s status replies use command 10 and echo the query’s
+sequence number, as recorded in the
+[hardware acceptance record](hardware-acceptance.md#status-reply-matching).
+
 Internet-blocked testing was deferred by the user. No physical controls are
 installed. Actual Home/Siri use, cold boot and Wi-Fi recovery, offline
-operation, and production deployment remain pending; the task branch does not
-publish production images or modify Flux deployment configuration.
+operation, a paired HomeKit run with the current adapter, and production
+deployment remain pending; merging to main publishes an image but does not
+modify Flux deployment configuration.

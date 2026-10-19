@@ -118,6 +118,7 @@ class ControllerConfig(StrictModel):
         zones = self.zones or ()
         if (
             self.name == "bridge"
+            or (profile.endpoint_count == 1 and self.name == "availability")
             or len(set(zones)) != len(zones)
             or "availability" in zones
         ):

@@ -1,7 +1,7 @@
 # Tucson
 
-A local Python bridge for Sunbeam mattress-pad controllers, using TinyTuya and
-MQTT 5. Implementation follows the
+A local Python bridge for Sunbeam mattress-pad controllers and a Zemismart
+curtain motor, using TinyTuya and MQTT 5. Implementation follows the
 [implementation plan](docs/implementation-plan.md) and the
 [shared development conventions](https://github.com/shields/right-answers).
 
@@ -25,8 +25,9 @@ protocols 3.3, 3.4, and 3.5. Missing checkouts or runtimes fail the target. The
 [prerequisites](docs/adapter-qualification.md#controller-through-homekit-qualification)
 are in the qualification record.
 
-Hardware qualification is required before production use. The built-in profile
-starts from the published dual-zone mapping; physical behavior and write
+Hardware qualification is required before production use. The `sunbeam-dual`
+profile starts from the published dual-zone mapping and `zemismart-bcd300fb`
+from the mapping observed on the real motor; physical behavior and write
 behavior must be verified on the deployed controller.
 
 `tuya-mqtt run --config /path/to/config.json` runs the MQTT daemon. The
@@ -38,7 +39,7 @@ common failure states. The
 [implementation status](docs/implementation-status.md) tracks Hoboken and
 physical acceptance work still in progress.
 
-Curtain infrastructure and Hoboken's position-only HomeKit presentation follow
+Curtain infrastructure and Hoboken’s position-only HomeKit presentation follow
 the [curtain contract](docs/implementation-plan.md#curtain-infrastructure). The
 `zemismart-bcd300fb` profile supports the observed Wi-Fi motor on protocol 3.3,
 with [documented target tracking](docs/setup.md#zemismart-bcd300fb). Endpoint,

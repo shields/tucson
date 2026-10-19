@@ -352,9 +352,9 @@ initial raw position 46 was restored and read back at the end.
 | 100 → 50            | 45 milliseconds             | 16.0 seconds             | Roughly halfway          |
 | 50 → 46             | 43 milliseconds             | 3.5 seconds              | Restored value read back |
 
-The captured acknowledgements have command 7, the same sequence number as the
+The captured acknowledgments have command 7, the same sequence number as the
 control packet, return code zero, an empty payload, and a valid CRC. They arrive
-before movement completes. This is a protocol acknowledgement, not a report of a
+before movement completes. This is a protocol acknowledgment, not a report of a
 target datapoint. During each movement, status queries continued to return the
 previous completed position with DP 102 at `STOP`. Completion produced an
 unsolicited command-8 report containing only DP 101, followed by matching full
@@ -371,7 +371,7 @@ on every status poll during movement; waiting for DP 101 to equal the request
 would exceed the eight-second confirmation deadline on longer moves.
 
 The user approved a hardware-specific policy on October 18, 2026, to track the
-last target accepted by a correlated successful control acknowledgement, while
+last target accepted by a correlated successful control acknowledgment, while
 current position remains the last device-reported position. Polls returning that
 old position must not erase the target. An actual position change can reconcile
 the target after arrival or an external control. On a new connection, the last
@@ -396,14 +396,35 @@ The daemon logged exactly two control packets, `{"101":20}` and `{"101":46}`,
 and two distinct confirmed requests. No movement was replayed after the restart,
 and the initial position was restored. The paired client also verified that
 `HoldPosition` was absent. This exercised the source changes recorded with this
-acceptance entry; it was not a production deployment or an actual Apple
-Home/Siri test. Internet access was available.
+acceptance entry (commit `ac201c1`); it was not a production deployment or an
+actual Apple Home/Siri test. Internet access was available.
 
-The TCP simulator independently covers immediate acknowledgements with delayed
-position reports, reconnects without replay, and missing acknowledgement
-failure. Unit tests cover stale or unrelated ACKs, invalid CRC/return codes,
-late ACKs, unsupported protocols, and position validation. The scrubbed hardware
-schema and trace are in `tests/fixtures/zemismart-bcd300fb.json`.
+The TCP simulator independently covers immediate acknowledgments with delayed
+position reports, reconnects without replay, and missing acknowledgment failure.
+Unit tests cover stale or unrelated ACKs, invalid CRC/return codes, late ACKs,
+unsupported protocols, and position validation. The scrubbed hardware schema and
+trace are in `tests/fixtures/zemismart-bcd300fb.json`.
+
+### Status reply matching
+
+On October 19, 2026 (local date), read-only `inspect` succeeded against the
+motor using the merged adapter at `27e9d9a`, Python 3.15.0, TinyTuya 1.20.0,
+protocol 3.3, and the loopback relay described above. The working tree contained
+other changes, but `tuya_client.py` was unchanged from that revision. Inspection
+exited zero and returned `{"101":0,"102":"STOP"}`.
+
+A separate connection, five subsequent status queries, and a reconnection all
+returned the same datapoints. Each of those seven captured replies had command
+10, echoed its query’s sequence number, had return code zero, and passed CRC
+validation. The first connection used sequences one through six; reconnecting
+started again at one. Writes were disabled, and no control packet was sent. This
+verifies that the motor answers the current adapter’s status queries with the
+matching command required by the
+[adapter qualification](adapter-qualification.md#status-reply-matching).
+
+The saved October 18 movement and observation captures also contain 95 status
+reply frames, all with command 10. Those headers were recorded even though the
+adapter used for the earlier live HomeKit run did not require command matching.
 
 ### Remaining qualification
 
@@ -412,3 +433,7 @@ so physical-control updates cannot be exercised on this installation. Actual
 Home/Siri use, cold-boot and Wi-Fi recovery, offline operation, and production
 deployment remain pending. The profile is registered for explicit configuration
 and defaults to disabled writes.
+
+A short paired HomeKit run with the current adapter remains pending. The earlier
+live HomeKit run used `ac201c1`, before status-reply matching; the October 19
+verification exercised read-only inspection, polling, and reconnect.

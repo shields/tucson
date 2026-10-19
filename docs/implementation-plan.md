@@ -389,10 +389,13 @@ state readback, with no speculative rollback.
 
 For confirmation, process reports received after the write and perform a fresh
 status query when needed. A prior cached match or an empty transport ACK is not
-enough. On timeout or connection loss, record an unconfirmed result. Late
-reports still update state but do not change an already returned result. If MQTT
-has disappeared, retain the outcome only in diagnostics; the caller times out
-and must read current state before deciding what to do next.
+enough. The BCD300FB profile is an explicit exception: a successful control ACK
+matched by command and sequence confirms its target without waiting for a
+report, as [curtain infrastructure](#curtain-infrastructure) describes. On
+timeout or connection loss, record an unconfirmed result. Late reports still
+update state but do not change an already returned result. If MQTT has
+disappeared, retain the outcome only in diagnostics; the caller times out and
+must read current state before deciding what to do next.
 
 ### Qualify TinyTuya’s retry behavior first
 
@@ -770,7 +773,7 @@ position-based movement and is not motion telemetry. DP 103 is a reversal
 setting, is not reported by this unit, and is never written.
 
 The user approved a hardware-specific state policy on October 18, 2026. A
-successful control acknowledgement, matched by command and sequence with valid
+successful control acknowledgment, matched by command and sequence with valid
 CRC and return code zero, confirms acceptance and sets the tracked target. It
 does not change current position. Repeated reports of the old position preserve
 the target; a changed reported position reconciles it. Every new connection
@@ -782,7 +785,7 @@ target. Late ACKs cannot confirm expired or cancelled requests, and commands are
 never replayed.
 
 The [hardware record](hardware-acceptance.md#zemismart-bcd300fb-qualification)
-records the schema, firmware, orientation, acknowledgements, and live HomeKit
+records the schema, firmware, orientation, acknowledgments, and live HomeKit
 qualification. Internet-blocked testing is deferred at the user’s request;
 production deployment remains pending. Physical controls are not installed, so
 that acceptance check cannot be exercised here. Writes still default to

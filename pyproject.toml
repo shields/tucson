@@ -1,7 +1,7 @@
 [project]
 name = "tuya-mqtt"
 version = "0.0.0"
-description = "Local Sunbeam mattress-pad MQTT bridge"
+description = "Local MQTT bridge for Sunbeam mattress pads and Zemismart curtains"
 readme = "README.md"
 requires-python = ">=3.15"
 dependencies = [

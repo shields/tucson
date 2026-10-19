@@ -11,8 +11,9 @@ requests/results through a bounded mailbox; it never calls a device method.
 The worker exposes disconnected, connecting, synchronizing, online, and stopping
 states. A connection starts an empty baseline for its generation, preserving the
 previous reported snapshot for diagnostics. Partial reports merge only within
-that baseline. Online requires known power, heat level, and preheat on both
-zones. Unknown optional telemetry remains unknown.
+that baseline. Online requires every field the profile requires: power, heat
+level, and preheat on both Sunbeam zones, and current and target position for
+the curtain. Unknown optional telemetry remains unknown.
 
 Complete reports refresh the full-status timestamp, whether they are the reply
 to a query or an unsolicited report read between queries. Partial reports update

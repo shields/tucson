@@ -138,6 +138,27 @@ def test_a_single_endpoint_profile_has_no_zones(
     assert result.zone_name(0) is None
 
 
+def test_a_single_endpoint_profile_rejects_availability_name(
+    config_data: dict[str, Any], config_path: Path, secret_env: dict[str, str]
+) -> None:
+    controller = config_data["controllers"][0]
+    del controller["zones"]
+    controller |= {"profile": "zemismart-bcd300fb", "name": "availability"}
+    config_path.write_text(json.dumps(config_data))
+    with pytest.raises(BridgeError, match="invalid configuration"):
+        load_config(config_path, env=secret_env)
+
+
+def test_a_multi_endpoint_profile_allows_availability_controller_name(
+    config_data: dict[str, Any], config_path: Path, secret_env: dict[str, str]
+) -> None:
+    config_data["controllers"][0]["name"] = "availability"
+    config_path.write_text(json.dumps(config_data))
+    result = load_config(config_path, env=secret_env).config.controllers[0]
+    assert result.name == "availability"
+    assert result.zones == ("side_a", "side_b")
+
+
 @pytest.mark.parametrize("zones", [["curtain"], [], None])
 def test_a_single_endpoint_profile_rejects_a_zones_key(
     zones: list[str] | None,

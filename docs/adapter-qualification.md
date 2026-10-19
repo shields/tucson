@@ -21,10 +21,11 @@ by the maintained TCP cases; any TinyTuya update must repeat qualification.
 
 An explicit reserved IP and validated version prevent automatic LAN discovery.
 The adapter configures persistent sockets, disables receive retries, removes the
-send wait, and uses one socket-opening attempt during synchronization. Once
-synchronized, it sets the public socket retry limit to zero. The established
-socket remains usable; a lost socket cannot reopen inside an operation. A new
-application-level connection creates a new library `Device`.
+send wait, and uses a socket retry limit of one during synchronization, which
+lets TinyTuya reconnect and send a query once more after a timeout or reset.
+Once synchronized, it sets the public socket retry limit to zero. The
+established socket remains usable; a lost socket cannot reopen inside an
+operation. A new application-level connection creates a new library `Device`.
 
 Writes call the public `generate_payload` and `send` methods. TinyTuya continues
 to own the packet format and crypto. The synchronous `set_multiple_values`
@@ -32,15 +33,19 @@ helper has an additional failed-write fallback to individual writes, so it is
 excluded from the adapter. A send-only `None` result is transport completion,
 not confirmation. Profiles normally confirm requested values from fresh reports.
 The qualified BCD300FB position path instead requires a successful control
-acknowledgement whose command and sequence match the current write. The adapter
+acknowledgment whose command and sequence match the current write. The adapter
 captures the sent header through TinyTuya’s `raw_sent` and checks parsed
 `raw_recv` messages for the matching identity, valid CRC, and zero return code.
 It retains that identity across intervening queries, clears it for each write
-and connection, and rejects invalid matching acknowledgements. It checks the
-frames of every call, including those a status query reads while it waits for
-its reply, because each call replaces `raw_recv` and the acknowledgement can be
-the frame read ahead of the reply. This profile permits only the observed
-protocol 3.3.
+and connection, and rejects invalid matching acknowledgments. It checks the
+frames of every call that reads, including those a status query reads while it
+waits for its reply, because each call replaces `raw_recv` and the
+acknowledgment can be the frame read ahead of the reply. The exception is the
+frame TinyTuya’s `status()` reads before it repeats the query on first detecting
+device22. Only a reply containing `data unvalid` triggers that, the observed
+BCD300FB acknowledgments are empty, and such a reply would leave the write
+unconfirmed until its deadline. This profile permits only the observed protocol
+3.3.
 
 Device22 detection resets the requested DP list inside TinyTuya. An initial
 report missing any DP the profile requires causes the adapter to restore the
@@ -70,16 +75,18 @@ would be lost at the slice boundary. After synchronization the deadline starts
 before the query is sent, so a poll waits about one request timeout for its
 reply. During synchronization it starts when the first call returns, because
 that call also connects and negotiates the session and so does not use up the
-time allowed for the reply. Asking again, after a device22 rejection or a reset
-during synchronization, sends the query with a full request timeout and starts a
-new deadline, so either can add up to two more request timeouts. The reply
-supersedes the pushes read in the meantime, so they are discarded. A queued
-empty heartbeat or write ACK, a read that times out, and an empty frame with the
-query’s command are skipped the same way. Before a frame read during the wait is
-discarded, the adapter checks it against the pending BCD300FB write, so the wait
-cannot lose that profile’s control ACK. When TinyTuya cannot say which query was
-sent, no frame is accepted and the deadline ends the wait, because accepting an
-unrelated frame would return a push as the status.
+time allowed for the reply. Asking again, after a device22 rejection read during
+the wait or a reset during synchronization, sends the query with a full request
+timeout. A reset also starts a new deadline, so it can add up to two more
+request timeouts; a rejection keeps the current deadline, which ends the wait if
+rejections repeat. The reply supersedes the pushes read in the meantime, so they
+are discarded. A queued empty heartbeat or write ACK, a read that times out, and
+an empty frame with the query’s command are skipped the same way. Before a frame
+read during the wait is discarded, the adapter checks it against the pending
+BCD300FB write, so the wait cannot lose that profile’s control ACK. When
+TinyTuya cannot say which query was sent, no frame is accepted and the deadline
+ends the wait, because accepting an unrelated frame would return a push as the
+status.
 
 The adapter runs each `receive()` of the wait with the socket retry limit at
 zero and restores the limit before it asks again. Synchronization uses a limit
@@ -248,17 +255,22 @@ checkouts’ frozen dependencies installed. The selected target requires Hoboken
 `node-version` sets in Hoboken’s `.github/workflows/build.yml`, and the pinned
 Mosquitto executable. It fails when prerequisites are absent.
 
-The three protocol cases use the actual Tucson process and Hoboken bridge,
-paired HAP HTTP requests, MQTT 5, and the real TinyTuya/TCP simulator. They
-verify independent levels on both zones, stateful preheat, and off precedence
-with selected-level preservation. Decoded device writes must match exactly four
-expected payloads. A controller-originated push updates HomeKit without another
-write; Tucson shutdown then makes both zones unavailable. Process, socket, and
-pairing-state cleanup runs on failures as well as successful exits.
+Each protocol runs a Sunbeam case and a curtain case, both through the actual
+Tucson process and Hoboken bridge, paired HAP HTTP requests, MQTT 5, and the
+real TinyTuya/TCP simulator. The curtain case starts Tucson through
+`tests.curtain_daemon`, which registers the test-only `test-curtain` profile.
+The Sunbeam cases verify independent levels on both zones, stateful preheat, and
+off precedence with selected-level preservation; the curtain cases verify
+position targets. Decoded device writes must match the expected payloads
+exactly: the level, preheat, and off writes for the Sunbeam, and the position
+writes for the curtain. A controller-originated push updates HomeKit without
+another write; Tucson shutdown then makes every zone unavailable. Process,
+socket, and pairing-state cleanup runs on failures as well as successful exits.
 
 The assertions also check that synthetic key/password values do not appear in
 the collected application logs. These cases qualify interoperability between the
 two applications and share the simulator limitations above. They do not
-establish the physical Sunbeam mapping, firmware behavior, or Home/Siri UI
-compatibility. The two repositories’ required checks remain separate; run this
-additional target when qualifying their combined revisions.
+establish the physical Sunbeam mapping, the BCD300FB mapping (the curtain cases
+use synthetic datapoints), firmware behavior, or Home/Siri UI compatibility. The
+two repositories’ required checks remain separate; run this additional target
+when qualifying their combined revisions.
