@@ -35,3 +35,9 @@ updates, and rollback; [troubleshooting](docs/troubleshooting.md) explains
 common failure states. The
 [implementation status](docs/implementation-status.md) tracks Hoboken and
 physical acceptance work still in progress.
+
+Curtain infrastructure and Hoboken's position-only HomeKit presentation follow
+the [curtain contract](docs/implementation-plan.md#curtain-infrastructure).
+Zemismart hardware support is pending a verified device mapping; production
+configuration currently accepts only `sunbeam-dual`. Curtain qualification uses
+a test-only synthetic profile.

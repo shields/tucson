@@ -80,3 +80,16 @@ qualification requirement.
 Writes default to disabled. The worker sends each command as one multi-DP write
 once `write_mode` is `multi_dp`, which hardware testing verified on the PP21KQ.
 The manual and candidate mapping do not establish hardware compatibility.
+
+## Curtain infrastructure
+
+The [curtain contract](implementation-plan.md#curtain-infrastructure) adds
+profile-defined endpoints and position-only commands. Hoboken has a curtain
+configuration and HomeKit window-covering presentation using the shared Tucson
+MQTT session and confirmation machinery. Qualification includes a test-only
+curtain profile, real TinyTuya TCP traffic and MQTT, and paired HomeKit clients
+on protocols 3.3–3.5.
+
+Production Zemismart support remains pending. There is no registered Zemismart
+profile, verified datapoint map, or hardware acceptance record. The simulator's
+synthetic mapping is deliberately confined to tests.

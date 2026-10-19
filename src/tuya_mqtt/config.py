@@ -9,7 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from .domain import BridgeError, ErrorCode
 from .json_codec import InvalidJSONError, decode
-lazy from .profiles.sunbeam import WriteMode
+from .profiles import get_profile
+lazy from .profiles.base import WriteMode
 
 LOCAL_KEY_BYTES = 16
 
@@ -93,19 +94,22 @@ class ControllerConfig(StrictModel):
     port: Port = 6668
     protocol_version: Literal["3.3", "3.4", "3.5"]
     local_key: SecretReference
-    profile: Literal["sunbeam-dual"]
-    zones: tuple[Name, Name]
+    profile: Text
+    zones: tuple[Name, ...]
     write_mode: WriteMode = "disabled"
 
     @model_validator(mode="after")
     def check_identity(self) -> Self:
+        if len(self.zones) != get_profile(self.profile).endpoint_count:
+            message = "incorrect endpoint count for profile"
+            raise ValueError(message)
         address = ip_address(self.ip)
         if address.is_unspecified or address.is_multicast:
             message = "controller must have a unicast address"
             raise ValueError(message)
         if (
             self.name == "bridge"
-            or self.zones[0] == self.zones[1]
+            or len(set(self.zones)) != len(self.zones)
             or "availability" in self.zones
         ):
             message = "duplicate or reserved topic path"

@@ -694,3 +694,46 @@ separately documented pairing/key procedure unless an offline provisioning
 method is established. If stock firmware fails the offline soak, record that as
 a controller limitation and revisit firmware alternatives as a separate
 decision.
+
+## Curtain infrastructure
+
+Curtains use the same controller ownership, MQTT session, availability, and
+request/result contract as heated bedding. Device profiles define endpoint
+count, state shape, requested datapoints, required baseline fields, command
+validation and encoding, state-dependent preparation, and confirmation. The
+existing Sunbeam configuration and topics retain their meaning.
+
+A curtain has one endpoint, addressed as `<prefix>/<controller>/<zone>`, with
+the same `/set`, `/get`, and `/result` suffixes. Its snapshot contains
+`session_id`, `current_position`, `target_position`, and `motion`. Positions are
+integer percentages: zero is closed and 100 is open. Motion is `opening`,
+`closing`, `stopped`, or null. Missing reports remain null. Both positions are
+required for availability; motion telemetry is optional.
+
+The position-only command is `{"target_position":80}`, optionally with a
+`request_id`. The entire command is validated before writing. Start and stop
+commands, calibration, motor direction settings, and scheduling are outside this
+phase. A confirmed result requires fresh device evidence that the target was
+accepted, without waiting for physical arrival. Current position always comes
+from device reports.
+
+Hoboken exposes `CurrentPosition`, `TargetPosition`, and `PositionState` on a
+HomeKit `WindowCovering` service. It prefers reported motion; when motion is
+unknown, it infers direction from the reported positions. Inferred movement
+cannot detect a stalled motor or a physical stop that leaves an old target in
+the device. It never estimates position from elapsed time. HomeKit writes
+require a confirmed result and usable reported state from the active MQTT
+session. Existing bedding accessory identities remain stable.
+
+Zemismart support is pending identification and hardware qualification. No
+production curtain profile is registered. The test-only `test-curtain` profile
+uses synthetic datapoints 201–203 and reversed percentages to exercise profile
+selection and conversion without asserting a real device mapping. Production
+configuration rejects this profile. The test daemon registers it only within the
+qualification process.
+
+Before adding a production Zemismart profile, record the exact model, firmware,
+protocol, datapoints, position orientation, target acknowledgement, optional
+motion behavior, physical-control reports, and operation without Internet
+access. Keep writes disabled by default and qualify the mapping against actual
+hardware. Do not infer support from the brand name alone.

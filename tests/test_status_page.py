@@ -1,6 +1,8 @@
 import asyncio
 import json
 import re
+import shutil
+import subprocess
 from dataclasses import replace
 from importlib.resources import files
 lazy from collections.abc import AsyncIterator
@@ -16,6 +18,7 @@ from tuya_mqtt.config import load_config
 from tuya_mqtt.domain import (
     CommandResult,
     Completion,
+    CurtainField,
     ErrorCode,
     Field,
     Outcome,
@@ -93,13 +96,114 @@ async def test_http_health_readiness_metrics_and_read_only_page(
     assert (await client.get("/readyz")).status == 503
 
 
-def test_status_page_labels_every_field_in_domain_order() -> None:
+def test_status_page_labels_every_profile_field() -> None:
     page = files("tuya_mqtt").joinpath("status.html").read_text()
     literal = re.search(r"const fields = \{([^}]*)\}", page)
     assert literal is not None
     assert re.findall(r"^\s*(\w+):", literal[1], re.MULTILINE) == [
-        field.value for field in Field
+        field.value for field in (*Field, *CurtainField)
     ]
+
+
+async def test_status_page_renders_profile_fields(
+    rig: tuple[StatusServer, TestClient, Worker, Scheduler],
+) -> None:
+    server, _client, _worker, _clock = rig
+    data = server.data()
+    bedding = data["controllers"][0]
+    data["controllers"].append(
+        bedding
+        | {
+            "name": "Living room",
+            "zones": [
+                {
+                    "name": "Curtain",
+                    "reported": {
+                        "current_position": 40,
+                        "target_position": 80,
+                        "motion": "opening",
+                    },
+                    "previous": {
+                        "current_position": 0,
+                        "target_position": None,
+                        "motion": None,
+                    },
+                    "invalid_fields": [],
+                }
+            ],
+        }
+    )
+    page = files("tuya_mqtt").joinpath("status.html").read_text()
+    script = re.search(r"<script>(.*?)</script>", page, re.DOTALL)
+    assert script is not None
+    bun = shutil.which("bun")
+    assert bun is not None, "Bun is required to test the status-page renderer"
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            bun,
+            "--eval",
+            """
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+const { script, snapshot } = JSON.parse(readFileSync(0, "utf8"));
+class Element {
+    constructor(tag) { this.tag = tag; this.children = []; }
+    append(...nodes) { this.children.push(...nodes); }
+    replaceChildren(...nodes) { this.children = nodes; }
+    set textContent(text) { this.text = String(text); }
+}
+const content = new Element("div");
+const stream = new Element("p");
+let events;
+runInNewContext(script, {
+    document: {
+        getElementById: id => id === "content" ? content : stream,
+        createElement: tag => new Element(tag),
+    },
+    EventSource: class { constructor() { events = this; } },
+});
+const tables = [];
+function collect(element) {
+    if (element.tag === "table") {
+        tables.push(element.children.map(row => row.children.map(cell => cell.text)));
+    }
+    for (const child of element.children) collect(child);
+}
+events.onmessage({ data: JSON.stringify(snapshot) });
+collect(content);
+process.stdout.write(JSON.stringify(tables));
+""",
+        ],
+        input=json.dumps({"script": script[1], "snapshot": data}),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=5,
+    )
+    tables = json.loads(result.stdout)
+    assert len(tables) == 6
+    assert tables[0] == [
+        ["Power", "Off"],
+        ["Heat level", "4"],
+        ["Preheat", "Off"],
+        ["Auto-off setting", "3600\u202fs"],
+        ["Reported time remaining", "3600\u202fs"],
+        ["Reported preheat time remaining", "0\u202fs"],
+        ["Reported fault bits", "0"],
+    ]
+    assert all(value == "Unknown" for _label, value in tables[1])
+    assert tables[4] == [
+        ["Current position", "40"],
+        ["Target position", "80"],
+        ["Motion", "opening"],
+    ]
+    assert tables[5] == [
+        ["Current position", "0"],
+        ["Target position", "Unknown"],
+        ["Motion", "Unknown"],
+    ]
+    assert "undefined" not in result.stdout
 
 
 async def test_diagnostics_keep_unknown_previous_pending_and_results_separate(

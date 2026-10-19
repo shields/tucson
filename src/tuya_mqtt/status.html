@@ -113,6 +113,9 @@
         remaining_seconds: "Reported time remaining",
         preheat_remaining_seconds: "Reported preheat time remaining",
         fault_code: "Reported fault bits",
+        current_position: "Current position",
+        target_position: "Target position",
+        motion: "Motion",
       };
       function node(tag, text, className) {
         const element = document.createElement(tag);
@@ -136,14 +139,14 @@
       }
       function table(state) {
         const result = node("table");
-        for (const [key, label] of Object.entries(fields)) {
+        for (const [key, raw] of Object.entries(state)) {
           const row = node("tr");
           row.append(
-            node("th", label),
+            node("th", fields[key] ?? key),
             node(
               "td",
-              value(state[key]) +
-                (key.endsWith("seconds") && state[key] !== null ? " s" : ""),
+              value(raw) +
+                (key.endsWith("seconds") && raw !== null ? " s" : ""),
             ),
           );
           result.append(row);

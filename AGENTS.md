@@ -20,3 +20,8 @@ architecture and acceptance requirements. Use
 behavior and operational quality; right-answers supplies the shared development
 conventions. Keep project-specific decisions in this repository and reference
 the canonical guides rather than maintaining a second copy of them.
+
+Curtain infrastructure supports position-only commands. Keep Zemismart hardware
+mappings deferred until the exact device is qualified; synthetic curtain
+datapoints belong only in tests. The curtain contract is recorded in the
+implementation plan. Do not add start/stop controls without a separate request.

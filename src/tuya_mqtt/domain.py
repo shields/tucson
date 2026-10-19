@@ -1,5 +1,6 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from enum import StrEnum
+from typing import Literal
 
 
 class ErrorCode(StrEnum):
@@ -50,8 +51,15 @@ class Field(StrEnum):
     FAULT_CODE = "fault_code"
 
 
+class CurtainField(StrEnum):
+    CURRENT_POSITION = "current_position"
+    TARGET_POSITION = "target_position"
+    MOTION = "motion"
+
+
 type Value = bool | int
-type Update = tuple[Field, Value | None]
+type StateField = Field | CurtainField
+type Update = tuple[StateField, Value | str | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,11 +88,37 @@ class ZoneState:
 
 
 @dataclass(frozen=True, slots=True)
+class CurtainState:
+    current_position: int | None = None
+    target_position: int | None = None
+    motion: Literal["opening", "closing", "stopped"] | None = None
+
+    @property
+    def usable(self) -> bool:
+        return self.current_position is not None and self.target_position is not None
+
+    @property
+    def fault_code(self) -> None:
+        return None
+
+    def merge(self, updates: tuple[Update, ...]) -> CurtainState:
+        return replace(self, **dict(updates))
+
+    def payload(self, session_id: str) -> dict[str, str | Value | None]:
+        return {"session_id": session_id} | {
+            field.name: getattr(self, field.name) for field in fields(self)
+        }
+
+
+type EndpointState = ZoneState | CurtainState
+
+
+@dataclass(frozen=True, slots=True)
 class Command:
     request_id: str
-    values: tuple[tuple[Field, Value], ...]
+    values: tuple[tuple[StateField, Value], ...]
 
-    def matches(self, state: ZoneState) -> bool:
+    def matches(self, state: EndpointState) -> bool:
         return all(getattr(state, field.value) == value for field, value in self.values)
 
 
@@ -124,13 +158,10 @@ class ControllerSnapshot:
     connection: ConnectionState = ConnectionState.DISCONNECTED
     generation: int = 0
     session_id: str | None = None
-    zones: tuple[ZoneState, ZoneState] = (ZoneState(), ZoneState())
-    previous_zones: tuple[ZoneState, ZoneState] = (ZoneState(), ZoneState())
+    zones: tuple[EndpointState, ...] = ()
+    previous_zones: tuple[EndpointState, ...] = ()
     previous_full_status_at: float | None = None
-    invalid_fields: tuple[frozenset[Field], frozenset[Field]] = (
-        frozenset(),
-        frozenset(),
-    )
+    invalid_fields: tuple[frozenset[StateField], ...] = ()
     synchronized_at: float | None = None
     last_full_status: float | None = None
     last_traffic: float | None = None

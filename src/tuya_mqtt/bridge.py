@@ -18,15 +18,14 @@ from .domain import (
     ControllerSnapshot,
     ErrorCode,
     Outcome,
-    ZoneState,
 )
 from .json_codec import InvalidJSONError, decode
 from .mqtt_client import MQTTFailureError, Operation
-from .profiles.sunbeam import (
+from .profiles import get_profile
+from .profiles.base import (
     MAX_PAYLOAD_BYTES,
     MAX_REQUEST_ID,
     MIN_PRINTABLE,
-    parse_command,
 )
 from .requests import Admission, RequestLedger
 lazy from .config import ResolvedConfig
@@ -119,6 +118,7 @@ class Bridge:
             raise ValueError(message)
         self.config = resolved.config
         self.workers = workers
+        self.profiles = tuple(get_profile(c.profile) for c in self.config.controllers)
         self.stop_requested = asyncio.Event()
         self.connected = False
         self.running = False
@@ -281,7 +281,7 @@ class Bridge:
             await self._result(client, index, zone, decision.result)
             return
         try:
-            command = parse_command(message.payload, generated_id=request_id)
+            command = self.profiles[index].parse_command(message.payload, request_id)
         except BridgeError as failure:
             result = CommandResult(request_id, Outcome.REJECTED, failure.code)
         else:
@@ -334,11 +334,11 @@ class Bridge:
                 # behind every result published below.
                 results = self._drain(index)
                 view = worker.snapshot
-                for zone in range(2):
+                for zone in range(self.profiles[index].endpoint_count):
                     state = (
                         view.zones[zone]
                         if view.session_id == self.session_id
-                        else ZoneState()
+                        else self.profiles[index].state_factory()
                     )
                     payload = encode(state.payload(cast("str", self.session_id)))
                     version = payload, view.refresh_revision, view.generation
@@ -402,7 +402,7 @@ class Bridge:
                         self._ledgers = {
                             (index, zone): RequestLedger(clock=self._clock)
                             for index in range(len(self.workers))
-                            for zone in range(2)
+                            for zone in range(self.profiles[index].endpoint_count)
                         }
                         for worker in self.workers:
                             worker.set_session(self.session_id)

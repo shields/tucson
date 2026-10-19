@@ -18,6 +18,7 @@ class Daemon:
     config: Path
     environment: dict[str, str] = field(repr=False)
     log_path: Path
+    module: str = "tuya_mqtt"
     process: subprocess.Popen[bytes] | None = None
     _log: BinaryIO | None = field(default=None, repr=False)
 
@@ -26,7 +27,7 @@ class Daemon:
         env = os.environ | self.environment | {"PYTHONPATH": str(root / "src")}
         self._log = self.log_path.open("ab")
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "tuya_mqtt", "run", "--config", str(self.config)],
+            [sys.executable, "-m", self.module, "run", "--config", str(self.config)],
             cwd=root,
             env=env,
             stdout=self._log,
