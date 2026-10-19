@@ -31,6 +31,11 @@ class Profile:
     prepare_command: Callable[[Command, EndpointState], Command]
     write_dps: Callable[[Command, int, WriteMode], dict[str, Value | str]]
     confirms: Callable[[Command, EndpointState], bool]
+    protocols: frozenset[str] = frozenset(("3.3", "3.4", "3.5"))
+    merge_report: Callable[[EndpointState, tuple[Update, ...]], EndpointState] = (
+        lambda state, updates: state.merge(updates)
+    )
+    acknowledge: Callable[[Command], tuple[Update, ...]] | None = None
 
     def initial_states(self) -> tuple[EndpointState, ...]:
         return tuple(self.state_factory() for _ in range(self.endpoint_count))

@@ -204,3 +204,110 @@ exercised, physical setting changes during outages, synchronization after
 recovery, and any unexpected writes or degradation. Completion requires seven
 consecutive days and the functional matrix above, as specified in the
 [implementation plan](implementation-plan.md#hardware-acceptance-and-remaining-decisions).
+
+## Zemismart BCD300FB qualification
+
+Status: hardware observations on October 18, 2026 (local date). The user
+identifies the hardware as a Zemismart BCD300FB Wi-Fi curtain motor, and TCP
+port 6668 accepts connections at its reserved address. Tuya’s cloud product
+metadata calls it “BCM700D WiFi,” in category `cl`; this name does not establish
+compatibility with other motors using that product definition.
+
+TinyTuya 1.20.0 authenticated with the newly retrieved local key using protocol
+3.3, on Python 3.15.0. The user reports installed firmware V3.1.4 and V1.0.0
+from Smart Life; the module labels were not supplied. The firmware-version API
+request failed with code `28841101`. Device identity and local credentials are
+stored privately and are excluded from this record.
+
+The inspection host’s Python processes cannot connect directly to the LAN
+address, while Apple’s `/usr/bin/nc` can. A loopback TCP relay using that
+executable allowed TinyTuya to own framing and encryption without changing macOS
+privacy settings. Internet access was available throughout these observations.
+Several initial reads failed with TinyTuya error 904 after the peer closed the
+socket; no control packet was sent on those attempts. Successful persistent
+sessions continued to answer status requests and heartbeats. The intermittent
+initial closure remains unexplained.
+
+### Data model and observations
+
+The full Tuya data model declares these properties:
+
+| DP  | Code           | Type and range            | Declared access | Local observation                                    |
+| --- | -------------- | ------------------------- | --------------- | ---------------------------------------------------- |
+| 101 | `position`     | Integer, 0–100%, step one | Read/write      | Last completed position; writable destination        |
+| 102 | `mach_operate` | Enum: `ZZ`, `FZ`, `STOP`  | Read/write      | `STOP`, including throughout position-based movement |
+| 103 | `opposite`     | Boolean                   | Read/write      | Not reported; never written                          |
+
+The user confirmed a clear path and authorized endpoint and intermediate
+movement, followed by restoration of the initial position. Only DP 101 was
+written. The user observed raw position 0 as fully open, 100 as fully closed,
+and 50 as roughly halfway. Normalized positions therefore use `100 - raw`. The
+initial raw position 46 was restored and read back at the end.
+
+| Move, raw positions | Successful control ACK      | First destination report | Physical observation     |
+| ------------------- | --------------------------- | ------------------------ | ------------------------ |
+| 46 → 0              | Frame metadata not captured | About 16.5 seconds       | Fully open               |
+| 0 → 100             | 53 milliseconds             | 32.8 seconds             | Fully closed             |
+| 100 → 50            | 45 milliseconds             | 16.0 seconds             | Roughly halfway          |
+| 50 → 46             | 43 milliseconds             | 3.5 seconds              | Restored value read back |
+
+The captured acknowledgements have command 7, the same sequence number as the
+control packet, return code zero, an empty payload, and a valid CRC. They arrive
+before movement completes. This is a protocol acknowledgement, not a report of a
+target datapoint. During each movement, status queries continued to return the
+previous completed position with DP 102 at `STOP`. Completion produced an
+unsolicited command-8 report containing only DP 101, followed by matching full
+status responses. DP 102 is therefore not usable as motion telemetry for this
+control path. Motion must remain null.
+
+### Approved state policy
+
+The existing curtain contract requires separate current and target positions,
+both populated before availability, and fresh evidence of target acceptance
+without waiting for arrival. This firmware does not report a separate target.
+Mapping each DP 101 response to both fields would erase an acknowledged target
+on every status poll during movement; waiting for DP 101 to equal the request
+would exceed the eight-second confirmation deadline on longer moves.
+
+The user approved a hardware-specific policy on October 18, 2026, to track the
+last target accepted by a correlated successful control acknowledgement, while
+current position remains the last device-reported position. Polls returning that
+old position must not erase the target. An actual position change can reconcile
+the target after arrival or an external control. On a new connection, the last
+reported position initializes both fields and any remembered target is
+discarded. HomeKit temporarily loses knowledge of movement across reconnects,
+and position jumps when the motor reports completion. The `zemismart-bcd300fb`
+profile implements this exception to the reported-target baseline. A transport
+send result alone must never count as confirmation.
+
+### Live HomeKit and reconnect test
+
+The isolated Tucson daemon and Hoboken at revision `1f24915` ran with a local
+Mosquitto 2.0.22 broker, Node.js 26.12.0, and a paired HAP HTTP client. The
+client sent a normalized target of 80 from the initial 54. HomeKit acknowledged
+the write before arrival and continued reporting current position 54. Tucson
+then restarted while the curtain was moving. On reconnection, HomeKit observed
+the fresh baseline of current/target 54; the motor continued its existing
+movement and later reported 80. HomeKit then requested 54 and observed its
+arrival before Tucson shut down and the accessory became unavailable.
+
+The daemon logged exactly two control packets, `{"101":20}` and `{"101":46}`,
+and two distinct confirmed requests. No movement was replayed after the restart,
+and the initial position was restored. The paired client also verified that
+`HoldPosition` was absent. This exercised the source changes recorded with this
+acceptance entry; it was not a production deployment or an actual Apple
+Home/Siri test. Internet access was available.
+
+The TCP simulator independently covers immediate acknowledgements with delayed
+position reports, reconnects without replay, and missing acknowledgement
+failure. Unit tests cover stale or unrelated ACKs, invalid CRC/return codes,
+late ACKs, unsupported protocols, and position validation. The scrubbed hardware
+schema and trace are in `tests/fixtures/zemismart-bcd300fb.json`.
+
+### Remaining qualification
+
+The user deferred Internet-blocked testing. No physical controls are installed,
+so physical-control updates cannot be exercised on this installation. Actual
+Home/Siri use, cold-boot and Wi-Fi recovery, offline operation, and production
+deployment remain pending. The profile is registered for explicit configuration
+and defaults to disabled writes.

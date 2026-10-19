@@ -100,7 +100,11 @@ class ControllerConfig(StrictModel):
 
     @model_validator(mode="after")
     def check_identity(self) -> Self:
-        if len(self.zones) != get_profile(self.profile).endpoint_count:
+        profile = get_profile(self.profile)
+        if self.protocol_version not in profile.protocols:
+            message = "unsupported protocol for profile"
+            raise ValueError(message)
+        if len(self.zones) != profile.endpoint_count:
             message = "incorrect endpoint count for profile"
             raise ValueError(message)
         address = ip_address(self.ip)

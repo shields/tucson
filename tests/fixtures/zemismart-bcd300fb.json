@@ -1,0 +1,99 @@
+{
+  "provenance": {
+    "local_date": "2026-10-18",
+    "model": "Zemismart BCD300FB Wi-Fi",
+    "cloud_product_name": "BCM700D WiFi",
+    "firmware_user_reported": ["V3.1.4", "V1.0.0"],
+    "module_labels_verified": false,
+    "protocol": "3.3",
+    "python": "3.15.0",
+    "tinytuya": "1.20.0",
+    "internet_blocked": false,
+    "transport": "loopback relay through Apple netcat",
+    "physical_endpoints_verified": true,
+    "physical_controls_installed": false
+  },
+  "schema": {
+    "101": {
+      "code": "position",
+      "type": "int",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "scale": 0,
+      "unit": "%",
+      "access": "rw"
+    },
+    "102": {
+      "code": "mach_operate",
+      "type": "enum",
+      "values": ["ZZ", "FZ", "STOP"],
+      "access": "rw"
+    },
+    "103": {
+      "code": "opposite",
+      "type": "bool",
+      "access": "rw"
+    }
+  },
+  "close_trace": [
+    {
+      "seconds": 0.146,
+      "event": "initial_status",
+      "data": {
+        "101": 0,
+        "102": "STOP"
+      }
+    },
+    {
+      "seconds": 0.146,
+      "event": "write",
+      "data": {
+        "101": 100
+      }
+    },
+    {
+      "seconds": 0.199,
+      "event": "frame",
+      "data": {
+        "operation": "push",
+        "command": 7,
+        "sequence": 2,
+        "return_code": 0,
+        "payload_bytes": 0,
+        "crc_good": true
+      }
+    },
+    {
+      "seconds": 2.292,
+      "event": "status",
+      "data": {
+        "101": 0,
+        "102": "STOP"
+      }
+    },
+    {
+      "seconds": 32.902,
+      "event": "push",
+      "data": {
+        "101": 100
+      }
+    }
+  ],
+  "open_report": {
+    "101": 0,
+    "102": "STOP"
+  },
+  "closed_report": {
+    "101": 100,
+    "102": "STOP"
+  },
+  "halfway_report": {
+    "101": 50,
+    "102": "STOP"
+  },
+  "restored_report": {
+    "101": 46,
+    "102": "STOP"
+  }
+}

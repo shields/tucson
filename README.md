@@ -37,7 +37,9 @@ common failure states. The
 physical acceptance work still in progress.
 
 Curtain infrastructure and Hoboken's position-only HomeKit presentation follow
-the [curtain contract](docs/implementation-plan.md#curtain-infrastructure).
-Zemismart hardware support is pending a verified device mapping; production
-configuration currently accepts only `sunbeam-dual`. Curtain qualification uses
-a test-only synthetic profile.
+the [curtain contract](docs/implementation-plan.md#curtain-infrastructure). The
+`zemismart-bcd300fb` profile supports the observed Wi-Fi motor on protocol 3.3,
+with [documented target tracking](docs/setup.md#zemismart-bcd300fb). Endpoint,
+intermediate-position, and local HomeKit tests passed on the real motor.
+Internet-blocked qualification remains pending before production deployment.
+Other Zemismart models are not implied to be compatible.

@@ -6,6 +6,7 @@ from tuya_mqtt.domain import BridgeError, ErrorCode, Value
 from tuya_mqtt.profiles.sunbeam import REQUIRED_DPS
 from tuya_mqtt.tuya_client import TinyTuyaClient, sanitized_dps
 lazy from tuya_mqtt.config import ControllerConfig
+lazy from tuya_mqtt.tuya_client import RawHeader, RawMessage
 
 
 class RawFake:
@@ -14,6 +15,8 @@ class RawFake:
         self.response: object = {"dps": {"14": True}}
         self.failure: Exception | None = None
         self.closed = 0
+        self.raw_sent: RawHeader | None = None
+        self.raw_recv: list[RawMessage] = []
 
     def set_socketPersistent(self, *, persist: bool) -> None:
         self.calls.append(("persistent", persist))

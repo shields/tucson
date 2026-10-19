@@ -34,6 +34,7 @@ class Device:
     owner_ids: set[int] = field(default_factory=set)
     writes: list[dict[str, Value | str]] = field(default_factory=list)
     apply_writes: bool = True
+    write_acknowledged: bool = False
     echo_writes: bool = False
     write_error: Exception | None = None
     heartbeat_error: Exception | None = None
@@ -79,6 +80,7 @@ class Device:
             raise self.heartbeat_error
 
     def write(self, dps: dict[str, Value | str]) -> None:
+        self.write_acknowledged = False
         self.record("write", dps.copy())
         self.writes.append(dps.copy())
         if self.apply_writes:

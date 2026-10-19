@@ -30,8 +30,14 @@ Writes call the public `generate_payload` and `send` methods. TinyTuya continues
 to own the packet format and crypto. The synchronous `set_multiple_values`
 helper has an additional failed-write fallback to individual writes, so it is
 excluded from the adapter. A send-only `None` result is transport completion,
-not confirmation. The controller worker must confirm requested values from fresh
-reports.
+not confirmation. Profiles normally confirm requested values from fresh reports.
+The qualified BCD300FB position path instead requires a successful control
+acknowledgement whose command and sequence match the current write. The adapter
+captures the sent header through TinyTuya’s public `raw_sent` and checks parsed
+`raw_recv` messages for the matching identity, valid CRC, and zero return code.
+It retains that identity across intervening queries, clears it for each write
+and connection, and rejects invalid matching acknowledgements. This profile
+permits only the observed protocol 3.3.
 
 Device22 detection resets the requested DP list inside TinyTuya. An initial
 report missing any mapped DP except the optional fault bitmap (DP 13) causes the
@@ -50,7 +56,14 @@ advertising availability.
 A delayed-response case exceeds the request deadline and checks that reconnect
 reads the applied state without another write. A status poll tolerates a queued
 empty heartbeat ACK by receiving until a report or its monotonic deadline. The
-ACK itself does not update state or freshness.
+heartbeat ACK itself does not update state or freshness. The BCD300FB control
+ACK can update the accepted target, but never current position or status age.
+
+BCD300FB cases also exercise delayed position reports with an immediate empty
+control ACK, preservation of the acknowledged target across stale position
+polls, and reconnect during movement without replay. A fresh position report
+cannot replace a missing control ACK for this profile. Sanitized observations
+are stored in `tests/fixtures/zemismart-bcd300fb.json`.
 
 Instrumented existing simulator handlers count decoded concrete writes,
 excluding all-null device22 status queries. Fault cases assert one decoded

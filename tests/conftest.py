@@ -31,3 +31,16 @@ def controller_config(
     config_path: Path, secret_env: dict[str, str]
 ) -> ControllerConfig:
     return load_config(config_path, env=secret_env).config.controllers[0]
+
+
+@pytest.fixture
+def zemismart_config(controller_config: ControllerConfig) -> ControllerConfig:
+    return ControllerConfig.model_validate(
+        controller_config.model_dump()
+        | {
+            "profile": "zemismart-bcd300fb",
+            "protocol_version": "3.3",
+            "zones": ("curtain",),
+            "write_mode": "multi_dp",
+        }
+    )

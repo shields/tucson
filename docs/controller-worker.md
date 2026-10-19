@@ -36,7 +36,10 @@ owner thread when MQTT stalls; additional admission returns `queue_full`.
 Commands must begin within two seconds and have an eight-second confirmation
 deadline from receipt. Each step rechecks state, generation, session, required
 fields, and deadlines. Only fresh reports after the final write can confirm the
-complete request. Empty ACKs and a prior cached match do not confirm it. An
+complete request. A prior cached match does not confirm it. The BCD300FB profile
+has an explicit exception: a correlated successful control ACK confirms the
+target and updates its tracked target position, while current position still
+comes only from reports. Other profiles do not use ACKs for confirmation. An
 unconfirmed request schedules state readback without rollback or replay; late
 reports update state while preserving the terminal result.
 

@@ -725,15 +725,31 @@ the device. It never estimates position from elapsed time. HomeKit writes
 require a confirmed result and usable reported state from the active MQTT
 session. Existing bedding accessory identities remain stable.
 
-Zemismart support is pending identification and hardware qualification. No
-production curtain profile is registered. The test-only `test-curtain` profile
-uses synthetic datapoints 201–203 and reversed percentages to exercise profile
-selection and conversion without asserting a real device mapping. Production
-configuration rejects this profile. The test daemon registers it only within the
-qualification process.
+The `zemismart-bcd300fb` profile implements the observed Wi-Fi motor on protocol
+3.3. DP 101 is a writable destination but reports only the last completed
+position; normalized positions use `100 - raw`. DP 102 remains `STOP` throughout
+position-based movement and is not motion telemetry. DP 103 is a reversal
+setting, is not reported by this unit, and is never written.
 
-Before adding a production Zemismart profile, record the exact model, firmware,
-protocol, datapoints, position orientation, target acknowledgement, optional
-motion behavior, physical-control reports, and operation without Internet
-access. Keep writes disabled by default and qualify the mapping against actual
-hardware. Do not infer support from the brand name alone.
+The user approved a hardware-specific state policy on October 18, 2026. A
+successful control acknowledgement, matched by command and sequence with valid
+CRC and return code zero, confirms acceptance and sets the tracked target. It
+does not change current position. Repeated reports of the old position preserve
+the target; a changed reported position reconciles it. Every new connection
+initializes both positions from the reported position and discards any
+remembered target. HomeKit can temporarily show no movement across a reconnect
+while the motor continues moving. This is an explicit exception to the
+reported-target baseline, not a claim that the firmware reports a separate
+target. Late ACKs cannot confirm expired or cancelled requests, and commands are
+never replayed.
+
+The [hardware record](hardware-acceptance.md#zemismart-bcd300fb-qualification)
+records the schema, firmware, orientation, acknowledgements, and live HomeKit
+qualification. Internet-blocked testing is deferred at the user’s request;
+production deployment remains pending. Physical controls are not installed, so
+that acceptance check cannot be exercised here. Writes still default to
+disabled. Do not infer other hardware support from the Zemismart brand.
+
+The test-only `test-curtain` profile retains synthetic datapoints 201–203 and
+separate target/current reports to exercise the general curtain contract on
+protocols 3.3–3.5. Production configuration rejects this test profile.

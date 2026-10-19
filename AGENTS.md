@@ -21,7 +21,10 @@ behavior and operational quality; right-answers supplies the shared development
 conventions. Keep project-specific decisions in this repository and reference
 the canonical guides rather than maintaining a second copy of them.
 
-Curtain infrastructure supports position-only commands. Keep Zemismart hardware
-mappings deferred until the exact device is qualified; synthetic curtain
-datapoints belong only in tests. The curtain contract is recorded in the
-implementation plan. Do not add start/stop controls without a separate request.
+Curtains support position-only commands. The `zemismart-bcd300fb` profile uses
+the observed protocol 3.3 mapping and correlated control acknowledgements; its
+target-tracking exception and reconnect limitations are recorded in the
+implementation plan and hardware acceptance record. Internet-blocked
+qualification remains deferred, so production deployment is pending. Do not
+generalize this mapping to other Zemismart devices. Synthetic curtain datapoints
+belong only in tests. Do not add start/stop controls without a separate request.

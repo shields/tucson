@@ -138,6 +138,7 @@ class Pending:
     dps: dict[str, Value | str]
     confirmation: EndpointState
     written: bool = False
+    acknowledged: bool = False
     next_query: float = 0
 
 
@@ -303,7 +304,7 @@ class ControllerCore:
             for zone in range(self.profile.endpoint_count)
         )
         zones = tuple(
-            self.view.zones[index].merge(report.updates)
+            self.profile.merge_report(self.view.zones[index], report.updates)
             for index, report in enumerate(reports)
         )
         invalid = tuple(
@@ -366,6 +367,25 @@ class ControllerCore:
         ):
             return ErrorCode.COMPATIBILITY
         return None
+
+    def _acknowledge(self, device: DeviceClient) -> None:
+        pending = self._pending
+        acknowledge = self.profile.acknowledge
+        if (
+            pending is None
+            or not pending.written
+            or pending.acknowledged
+            or acknowledge is None
+            or not device.write_acknowledged
+            or self._guard(pending.request, started=True) is not None
+        ):
+            return
+        updates = acknowledge(pending.command)
+        pending.acknowledged = True
+        pending.confirmation = pending.confirmation.merge(updates)
+        zones = list(self.view.zones)
+        zones[pending.request.zone] = zones[pending.request.zone].merge(updates)
+        self._publish(zones=tuple(zones))
 
     def _command_step(self, device: DeviceClient) -> None:
         pending = self._pending
@@ -496,6 +516,7 @@ class ControllerCore:
             else:
                 operation = "command"
                 self._command_step(device)
+            self._acknowledge(device)
         except BridgeError as error:
             self._disconnect(error.code, operation)
 

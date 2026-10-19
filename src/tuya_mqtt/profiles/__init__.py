@@ -1,9 +1,13 @@
 from tuya_mqtt.domain import BridgeError, ErrorCode
 
-from .sunbeam import PROFILE
+from .sunbeam import PROFILE as SUNBEAM
+from .zemismart import PROFILE as ZEMISMART
 lazy from .base import Profile
 
-PROFILES: dict[str, Profile] = {"sunbeam-dual": PROFILE}
+PROFILES: dict[str, Profile] = {
+    "sunbeam-dual": SUNBEAM,
+    "zemismart-bcd300fb": ZEMISMART,
+}
 
 
 def get_profile(name: str) -> Profile:

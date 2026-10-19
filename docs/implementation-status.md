@@ -90,6 +90,16 @@ MQTT session and confirmation machinery. Qualification includes a test-only
 curtain profile, real TinyTuya TCP traffic and MQTT, and paired HomeKit clients
 on protocols 3.3–3.5.
 
-Production Zemismart support remains pending. There is no registered Zemismart
-profile, verified datapoint map, or hardware acceptance record. The simulator's
-synthetic mapping is deliberately confined to tests.
+The registered `zemismart-bcd300fb` profile uses the
+[observed hardware mapping](hardware-acceptance.md#zemismart-bcd300fb-qualification)
+and the user-approved target-tracking exception. Real endpoint and intermediate
+writes passed, followed by an isolated paired HomeKit test that confirmed
+targets before arrival, restarted Tucson during movement without replay, and
+restored the initial position. Sanitized fixtures and TCP tests cover the
+protocol-3.3 ACK path. Other protocols are rejected for this profile. The
+general synthetic curtain profile remains confined to tests.
+
+Internet-blocked testing was deferred by the user. No physical controls are
+installed. Actual Home/Siri use, cold boot and Wi-Fi recovery, offline
+operation, and production deployment remain pending; the task branch does not
+publish production images or modify Flux deployment configuration.
