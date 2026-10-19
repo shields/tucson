@@ -37,3 +37,11 @@ updates, and rollback; [troubleshooting](docs/troubleshooting.md) explains
 common failure states. The
 [implementation status](docs/implementation-status.md) tracks Hoboken and
 physical acceptance work still in progress.
+
+Curtain infrastructure and Hoboken's position-only HomeKit presentation follow
+the [curtain contract](docs/implementation-plan.md#curtain-infrastructure). The
+`zemismart-bcd300fb` profile supports the observed Wi-Fi motor on protocol 3.3,
+with [documented target tracking](docs/setup.md#zemismart-bcd300fb). Endpoint,
+intermediate-position, and local HomeKit tests passed on the real motor.
+Internet-blocked qualification remains pending before production deployment.
+Other Zemismart models are not implied to be compatible.

@@ -87,6 +87,47 @@ tolerates a second session before running `inspect` beside the bridge. Compare
 the observed data with the [hardware acceptance record](hardware-acceptance.md)
 before enabling production writes.
 
+## Zemismart BCD300FB
+
+Use profile `zemismart-bcd300fb`, protocol `3.3`, and one zone for the Wi-Fi
+motor documented in the
+[hardware record](hardware-acceptance.md#zemismart-bcd300fb-qualification). A
+controller entry has this shape; replace the placeholder identity and secret
+reference with the private setup values:
+
+```json
+{
+  "name": "curtain",
+  "device_id": "replace-with-private-device-id",
+  "ip": "192.0.2.11",
+  "protocol_version": "3.3",
+  "profile": "zemismart-bcd300fb",
+  "zones": ["curtain"],
+  "local_key": { "file": "/mounted/secrets/curtain-local-key" },
+  "write_mode": "disabled"
+}
+```
+
+For an authorized movement test, set `write_mode` to `multi_dp` and publish
+`{"target_position":80}` to `tuya/curtain/curtain/set`. Zero is fully closed and
+100 is fully open. Only position DP 101 is written; operation and reversal
+settings are untouched. The profile rejects other protocol versions.
+
+This firmware reports its completed position, not progress during movement.
+Tucson tracks a target only after the matching successful control ACK. Repeated
+reports of the old position preserve that target; a changed position reconciles
+it. On a new connection, both position fields start at the device-reported
+position and the remembered target is discarded. HomeKit can therefore show no
+movement after a reconnect while the motor is still moving, and current position
+jumps when the motor reports completion. Motion remains null because DP 102
+reports `STOP` even during position-based movement.
+
+Endpoint and intermediate writes, target acceptance, and an isolated paired
+HomeKit test passed on the observed motor. The user deferred Internet-blocked
+testing, and no physical controls are installed. Production deployment remains
+pending. Re-pairing changes credentials; a different motor or direction setting
+requires repeating orientation qualification.
+
 ## Running the daemon
 
 Start with `uv run --frozen tuya-mqtt run --config /path/to/config.json`. The

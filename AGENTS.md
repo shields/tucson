@@ -20,3 +20,11 @@ architecture and acceptance requirements. Use
 behavior and operational quality; right-answers supplies the shared development
 conventions. Keep project-specific decisions in this repository and reference
 the canonical guides rather than maintaining a second copy of them.
+
+Curtains support position-only commands. The `zemismart-bcd300fb` profile uses
+the observed protocol 3.3 mapping and correlated control acknowledgements; its
+target-tracking exception and reconnect limitations are recorded in the
+implementation plan and hardware acceptance record. Internet-blocked
+qualification remains deferred, so production deployment is pending. Do not
+generalize this mapping to other Zemismart devices. Synthetic curtain datapoints
+belong only in tests. Do not add start/stop controls without a separate request.

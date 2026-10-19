@@ -24,7 +24,10 @@ REPLY = {"dps": BASELINE}
 
 @dataclass(frozen=True)
 class Frame:
-    cmd: int
+    cmd: int = tinytuya.CONTROL
+    seqno: int = 2
+    retcode: int | None = 0
+    crc_good: bool = True
 
 
 class RawFake:
@@ -35,7 +38,7 @@ class RawFake:
         self.closed = 0
         self.raw_sent: Frame | None = None
         self.raw_recv: list[Frame] = []
-        self.frames: deque[tuple[int | None, object]] = deque()
+        self.frames: deque[tuple[int | Frame | None, object]] = deque()
         self.sent_is_unparsed = False
         self.reads = 0
         self.now = 0.0
@@ -71,8 +74,10 @@ class RawFake:
         if self.failure is not None:
             raise self.failure
         if self.frames:
-            cmd, result = self.frames.popleft()
-            self.raw_recv = [] if cmd is None else [Frame(cmd)]
+            frame, result = self.frames.popleft()
+            if isinstance(frame, int):
+                frame = Frame(frame)
+            self.raw_recv = [] if frame is None else [frame]
             return result
         self.raw_recv = [Frame(QUERY)]
         return self.response

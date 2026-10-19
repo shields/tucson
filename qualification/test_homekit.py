@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from tests.curtain_profile import BASELINE as CURTAIN_BASELINE
 from tests.test_process import configure_process
 lazy from tests.broker import Broker
 lazy from tests.process import Daemon
@@ -24,8 +25,11 @@ def homekit_driver() -> Path:
     return driver
 
 
+@pytest.mark.parametrize("curtain", [False, True])
 @pytest.mark.parametrize("simulator", ["3.3", "3.4", "3.5"], indirect=True)
 async def test_controller_through_paired_homekit(
+    *,
+    curtain: bool,
     broker: Broker,
     simulator: Simulator,
     config_path: Path,
@@ -35,9 +39,18 @@ async def test_controller_through_paired_homekit(
 ) -> None:
     node = os.environ.get("NODE", "node")
     await broker.ready()
+    if curtain:
+        simulator.mock.dps.clear()
+        simulator.mock.dps.update(CURTAIN_BASELINE)
+        config_data["controllers"][0] |= {
+            "profile": "test-curtain",
+            "zones": ["curtain"],
+        }
     daemon: Daemon = configure_process(
         config_path, config_data, secret_env, broker, simulator
     )
+    if curtain:
+        daemon.module = "tests.curtain_daemon"
     process: asyncio.subprocess.Process | None = None
     transcript: list[str] = []
     events: list[str] = []
@@ -47,7 +60,11 @@ async def test_controller_through_paired_homekit(
             node,
             str(homekit_driver),
             cwd=homekit_driver.parent.parent,
-            env=os.environ | {"MQTT_TEST_URL": f"mqtt://127.0.0.1:{broker.port}"},
+            env=os.environ
+            | {
+                "MQTT_TEST_URL": f"mqtt://127.0.0.1:{broker.port}",
+                "MQTT_TEST_CURTAIN": "1" if curtain else "0",
+            },
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -65,7 +82,9 @@ async def test_controller_through_paired_homekit(
                 if event == "ready_for_push":
                     assert events == []
                     assert simulator.mock.push(
-                        {"14": False, "20": "level_3", "24": False}
+                        {"201": 60, "203": "opening"}
+                        if curtain
+                        else {"14": False, "20": "level_3", "24": False}
                     )
                     events.append(event)
                 elif event == "ready_for_shutdown":
@@ -80,12 +99,16 @@ async def test_controller_through_paired_homekit(
             "ready_for_shutdown",
             "qualification_passed",
         ]
-        assert simulator.writes == [
-            {"14": True, "20": "level_6"},
-            {"15": True, "21": "level_8"},
-            {"24": True},
-            {"14": False},
-        ]
+        assert simulator.writes == (
+            [{"202": 20}, {"202": 100}]
+            if curtain
+            else [
+                {"14": True, "20": "level_6"},
+                {"15": True, "21": "level_8"},
+                {"24": True},
+                {"14": False},
+            ]
+        )
         assert all(secret not in "".join(transcript) for secret in secret_env.values())
         assert all(
             secret not in daemon.log_path.read_text() for secret in secret_env.values()

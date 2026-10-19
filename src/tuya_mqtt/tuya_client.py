@@ -5,7 +5,7 @@ lazy from collections.abc import Callable, Mapping, Sequence
 import tinytuya
 
 from .domain import BridgeError, ErrorCode, Value
-from .profiles.sunbeam import FAULT_DP, REQUIRED_DPS
+from .profiles import get_profile
 lazy from .config import ControllerConfig
 
 REQUEST_TIMEOUT = 2.0
@@ -13,16 +13,25 @@ RECEIVE_SLICE = 0.25
 CONNECT_RETRY_LIMIT = 1
 
 
-class Frame(Protocol):
+class RawHeader(Protocol):
     @property
     def cmd(self) -> int: ...
+    @property
+    def seqno(self) -> int: ...
+
+
+class RawMessage(RawHeader, Protocol):
+    @property
+    def retcode(self) -> int | None: ...
+    @property
+    def crc_good(self) -> bool: ...
 
 
 class RawDevice(Protocol):
     @property
-    def raw_sent(self) -> Frame | None: ...
+    def raw_sent(self) -> RawHeader | None: ...
     @property
-    def raw_recv(self) -> Sequence[Frame]: ...
+    def raw_recv(self) -> Sequence[RawMessage]: ...
 
     def set_socketPersistent(self, *, persist: bool) -> None: ...
     def set_socketRetryLimit(self, limit: int) -> None: ...
@@ -42,6 +51,8 @@ class RawDevice(Protocol):
 
 
 class DeviceClient(Protocol):
+    @property
+    def write_acknowledged(self) -> bool: ...
     def connect(self) -> dict[str, object]: ...
     def status(self) -> dict[str, object]: ...
     def receive(self) -> dict[str, object] | None: ...
@@ -93,6 +104,7 @@ class TinyTuyaClient:
         clock: Callable[[], float] = monotonic,
     ) -> None:
         self._config = config
+        self._profile = get_profile(config.profile)
         self._key = local_key
         self._port = config.port if port is None else port
         self._request_timeout = request_timeout
@@ -101,6 +113,12 @@ class TinyTuyaClient:
         self._factory = factory or cast("Callable[..., RawDevice]", tinytuya.Device)
         self._device: RawDevice | None = None
         self._connected = False
+        self._write_header: tuple[int, int] | None = None
+        self._write_acknowledged = False
+
+    @property
+    def write_acknowledged(self) -> bool:
+        return self._write_acknowledged
 
     def _require_device(self) -> RawDevice:
         if self._device is None or not self._connected:
@@ -122,15 +140,14 @@ class TinyTuyaClient:
         device.set_socketRetryDelay(0)
         device.set_sendWait(0)
         device.set_retry(retry=False)
-        device.set_dpsUsed(dict.fromkeys(REQUIRED_DPS))
+        device.set_dpsUsed(dict.fromkeys(self._profile.requested_dps))
         try:
             result = self._query(device, connecting=True)
-            # The fault bitmap is optional, so its absence needs no re-query.
             if result is not None and any(
-                dp not in result for dp in REQUIRED_DPS if dp != FAULT_DP
+                dp not in result for dp in self._profile.query_dps
             ):
                 # Device22 detection resets TinyTuya's requested DP set to DP 1.
-                device.set_dpsUsed(dict.fromkeys(REQUIRED_DPS))
+                device.set_dpsUsed(dict.fromkeys(self._profile.requested_dps))
                 result = self._query(device, connecting=True)
         except OSError, ValueError, BridgeError:
             self.close()
@@ -145,6 +162,20 @@ class TinyTuyaClient:
         self._connected = True
         return result
 
+    def _observed(self, device: RawDevice, response: object) -> object:
+        # TinyTuya replaces raw_recv on every call, so each call's frames are
+        # checked before the next one.
+        if self._write_header is not None:
+            for frame in device.raw_recv:
+                if (frame.cmd, frame.seqno) != self._write_header:
+                    continue
+                if not frame.crc_good or frame.retcode != 0:
+                    raise BridgeError(
+                        ErrorCode.DEVICE_ERROR, "device rejected control packet"
+                    )
+                self._write_acknowledged = True
+        return response
+
     def _query(
         self, device: RawDevice, *, connecting: bool
     ) -> dict[str, object] | None:
@@ -156,7 +187,7 @@ class TinyTuyaClient:
 
         def ask() -> object:
             device.set_socketTimeout(self._request_timeout)
-            return device.status()
+            return self._observed(device, device.status())
 
         def listen(timeout: float) -> object:
             device.set_socketTimeout(timeout)
@@ -164,7 +195,7 @@ class TinyTuyaClient:
             # socket for a reply to a query that was not sent again.
             device.set_socketRetryLimit(0)
             try:
-                return device.receive()
+                return self._observed(device, device.receive())
             finally:
                 device.set_socketRetryLimit(retry_limit)
 
@@ -219,18 +250,21 @@ class TinyTuyaClient:
     def receive(self) -> dict[str, object] | None:
         def read(device: RawDevice) -> dict[str, object] | None:
             device.set_socketTimeout(self._receive_slice)
-            return _normalize(device.receive())
+            return _normalize(self._observed(device, device.receive()))
 
         return self._call(read)
 
     def heartbeat(self) -> None:
         def send(device: RawDevice) -> dict[str, object] | None:
             device.set_socketTimeout(self._request_timeout)
-            return _normalize(device.heartbeat(nowait=True))
+            return _normalize(self._observed(device, device.heartbeat(nowait=True)))
 
         self._call(send)
 
     def write(self, dps: dict[str, Value | str]) -> None:
+        self._write_header = None
+        self._write_acknowledged = False
+
         def send(device: RawDevice) -> dict[str, object] | None:
             device.set_socketTimeout(self._request_timeout)
             # The synchronous multi-DP helper retries failed writes one DP at a time.
@@ -238,9 +272,19 @@ class TinyTuyaClient:
             return _normalize(device.send(payload))
 
         self._call(send)
+        if self._profile.acknowledge is not None:
+            header = self._require_device().raw_sent
+            if header is None or header.cmd != tinytuya.CONTROL:
+                self._connected = False
+                raise BridgeError(
+                    ErrorCode.COMPATIBILITY, "control packet identity missing"
+                )
+            self._write_header = (header.cmd, header.seqno)
 
     def close(self) -> None:
         self._connected = False
+        self._write_header = None
+        self._write_acknowledged = False
         if self._device is not None:
             self._device.close()
             self._device = None

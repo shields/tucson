@@ -47,13 +47,17 @@ def simulator(
             for key, value in session._parse_dps(message).items()
             if value is not None
         }
+        previous = mock.dps.copy()
         response = original(session, message)
         if values:
             simulation.writes.append(values)
             if simulation.mode == "close":
                 mock.server._client.shutdown(socket.SHUT_RDWR)
                 response = None
-            elif simulation.mode == "empty_ack":
+            elif simulation.mode in ("empty_ack", "curtain"):
+                if simulation.mode == "curtain":
+                    mock.dps.clear()
+                    mock.dps.update(previous)
                 response = session.profile.pack_response(session, message.cmd, b"")
             elif simulation.mode == "drop_reply":
                 response = None

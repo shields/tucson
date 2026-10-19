@@ -66,7 +66,13 @@ class Worker:
     sessions: list[str | None] = field(default_factory=list)
     requests: list[Request] = field(default_factory=list)
     completed: deque[Completion] = field(default_factory=deque)
-    view: ControllerSnapshot = field(default_factory=ControllerSnapshot)
+    view: ControllerSnapshot = field(
+        default_factory=lambda: ControllerSnapshot(
+            zones=(ZoneState(), ZoneState()),
+            previous_zones=(ZoneState(), ZoneState()),
+            invalid_fields=(frozenset(), frozenset()),
+        )
+    )
     started: int = 0
     stopped: int = 0
     joined: int = 0

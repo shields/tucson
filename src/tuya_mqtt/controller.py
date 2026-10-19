@@ -1,5 +1,5 @@
 from collections import deque
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from random import random
 from threading import Event, Lock, Thread
 from time import monotonic
@@ -15,14 +15,13 @@ from .domain import (
     Completion,
     ConnectionState,
     ControllerSnapshot,
+    EndpointState,
     ErrorCode,
-    Field,
     Outcome,
     Request,
     Value,
-    ZoneState,
 )
-from .profiles.sunbeam import DP_MAP, decode_report, write_dps
+from .profiles import get_profile
 lazy from .config import ControllerConfig
 lazy from .tuya_client import DeviceClient
 
@@ -37,13 +36,6 @@ SHUTDOWN_TIMEOUT = 10.0
 MAX_BACKOFF = 60.0
 IDLE_SLICE = 0.25
 CONFIRMATION_POLL_INTERVAL = 1.0
-REQUIRED_FIELDS = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT)
-REQUIRED_BASELINE = frozenset(
-    dp
-    for zone in DP_MAP
-    for field, dp in zip(Field, zone, strict=True)
-    if field in REQUIRED_FIELDS
-)
 
 
 class ControllerLog(Protocol):
@@ -144,8 +136,9 @@ class Pending:
     request: Request
     command: Command
     dps: dict[str, Value | str]
+    confirmation: EndpointState
     written: bool = False
-    confirmation: ZoneState = field(default_factory=ZoneState)
+    acknowledged: bool = False
     next_query: float = 0
 
 
@@ -162,7 +155,13 @@ class ControllerCore:
     ) -> None:
         self.config = config
         self.mailbox = mailbox
-        self.view = ControllerSnapshot(progress_at=clock())
+        self.profile = get_profile(config.profile)
+        self.view = ControllerSnapshot(
+            progress_at=clock(),
+            zones=self.profile.initial_states(),
+            previous_zones=self.profile.initial_states(),
+            invalid_fields=tuple(frozenset() for _ in config.zones),
+        )
         self._factory = factory
         self._clock = clock
         self._jitter = jitter
@@ -251,7 +250,7 @@ class ControllerCore:
         current_known = any(
             getattr(zone, field.value) is not None
             for zone in self.view.zones
-            for field in Field
+            for field in self.profile.fields
         )
         previous = self.view.zones if current_known else self.view.previous_zones
         connection = (
@@ -273,8 +272,8 @@ class ControllerCore:
                 if current_known
                 else self.view.previous_full_status_at
             ),
-            zones=(ZoneState(), ZoneState()),
-            invalid_fields=(frozenset(), frozenset()),
+            zones=self.profile.initial_states(),
+            invalid_fields=tuple(frozenset() for _ in self.config.zones),
             synchronized_at=None,
             last_full_status=None,
             last_traffic=None,
@@ -300,9 +299,12 @@ class ControllerCore:
 
     def _report(self, dps: dict[str, object]) -> None:
         now = self._clock()
-        reports = (decode_report(dps, 0), decode_report(dps, 1))
+        reports = tuple(
+            self.profile.decode_report(dps, zone)
+            for zone in range(self.profile.endpoint_count)
+        )
         zones = tuple(
-            self.view.zones[index].merge(report.updates)
+            self.profile.merge_report(self.view.zones[index], report.updates)
             for index, report in enumerate(reports)
         )
         invalid = tuple(
@@ -316,8 +318,8 @@ class ControllerCore:
         error = ErrorCode.COMPATIBILITY if any(invalid) else None
         self._log_fault(zones[0].fault_code)
         self._publish(
-            zones=(zones[0], zones[1]),
-            invalid_fields=(frozenset(invalid[0]), frozenset(invalid[1])),
+            zones=zones,
+            invalid_fields=tuple(frozenset(fields) for fields in invalid),
             last_traffic=now,
             last_error=error
             if self.view.online or error is not None
@@ -328,9 +330,11 @@ class ControllerCore:
             self._pending.confirmation = self._pending.confirmation.merge(
                 report.updates
             )
-        if any(set(REQUIRED_FIELDS) & fields for fields in invalid):
+        if any(self.profile.required_fields & fields for fields in invalid):
             raise BridgeError(ErrorCode.COMPATIBILITY, "invalid required DP")
-        if dps.keys() >= REQUIRED_BASELINE and all(zone.usable for zone in zones):
+        if dps.keys() >= self.profile.baseline_dps and all(
+            zone.usable for zone in zones
+        ):
             self._publish(last_full_status=now)
         if all(zone.usable for zone in zones) and not self.view.online:
             self._publish(
@@ -364,20 +368,24 @@ class ControllerCore:
             return ErrorCode.COMPATIBILITY
         return None
 
-    def _effective_command(self, request: Request) -> Command:
-        # The firmware turns a side on when a level is written, and only an explicit
-        # power write starts the presence-confirmation window, so a level for a side
-        # that is off is sent with power on, ahead of the level. It ignores a timer
-        # for a side that is off.
-        command = request.command
-        fields = {field for field, _value in command.values}
-        if self.view.zones[request.zone].power is not False or Field.POWER in fields:
-            return command
-        if Field.HEAT_LEVEL in fields:
-            return Command(command.request_id, ((Field.POWER, True), *command.values))
-        if Field.AUTO_OFF_SECONDS in fields:
-            raise BridgeError(ErrorCode.ZONE_OFF, "timer for a side that is off")
-        return command
+    def _acknowledge(self, device: DeviceClient) -> None:
+        pending = self._pending
+        acknowledge = self.profile.acknowledge
+        if (
+            pending is None
+            or not pending.written
+            or pending.acknowledged
+            or acknowledge is None
+            or not device.write_acknowledged
+            or self._guard(pending.request, started=True) is not None
+        ):
+            return
+        updates = acknowledge(pending.command)
+        pending.acknowledged = True
+        pending.confirmation = pending.confirmation.merge(updates)
+        zones = list(self.view.zones)
+        zones[pending.request.zone] = zones[pending.request.zone].merge(updates)
+        self._publish(zones=tuple(zones))
 
     def _command_step(self, device: DeviceClient) -> None:
         pending = self._pending
@@ -393,12 +401,16 @@ class ControllerCore:
                 self._finish(request, Outcome.REJECTED, error)
                 return
             try:
-                command = self._effective_command(request)
-                dps = write_dps(command, request.zone, self.config.write_mode)
+                command = self.profile.prepare_command(
+                    request.command, self.view.zones[request.zone]
+                )
+                dps = self.profile.write_dps(
+                    command, request.zone, self.config.write_mode
+                )
             except BridgeError as error:
                 self._finish(request, Outcome.REJECTED, error.code)
                 return
-            pending = Pending(request, command, dps)
+            pending = Pending(request, command, dps, self.profile.state_factory())
             self._pending = pending
             self._publish(active=request)
         error = self._guard(pending.request, started=pending.written)
@@ -422,7 +434,7 @@ class ControllerCore:
             device.write(pending.dps)
             self._need_receive = True
             return
-        if pending.command.matches(pending.confirmation):
+        if self.profile.confirms(pending.command, pending.confirmation):
             self._pending = None
             self._finish(pending.request, Outcome.CONFIRMED)
             return
@@ -440,7 +452,7 @@ class ControllerCore:
             self._finish(
                 pending.request, Outcome.UNCONFIRMED, ErrorCode.CONFIRMATION_TIMEOUT
             )
-        elif pending.command.matches(pending.confirmation):
+        elif self.profile.confirms(pending.command, pending.confirmation):
             self._pending = None
             self._finish(pending.request, Outcome.CONFIRMED)
 
@@ -504,6 +516,7 @@ class ControllerCore:
             else:
                 operation = "command"
                 self._command_step(device)
+            self._acknowledge(device)
         except BridgeError as error:
             self._disconnect(error.code, operation)
 

@@ -1,15 +1,29 @@
-from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
+from typing import cast
 from uuid import uuid4
 lazy from collections.abc import Mapping
 
-from tuya_mqtt.domain import BridgeError, Command, ErrorCode, Field, Update, Value
+from tuya_mqtt.domain import (
+    BridgeError,
+    Command,
+    EndpointState,
+    ErrorCode,
+    Field,
+    Update,
+    Value,
+    ZoneState,
+)
 from tuya_mqtt.json_codec import InvalidJSONError, decode
 
-MAX_PAYLOAD_BYTES = 4096
-MAX_REQUEST_ID = 128
-MIN_PRINTABLE = 32
+from .base import (
+    MAX_PAYLOAD_BYTES,
+    MAX_REQUEST_ID,
+    MIN_PRINTABLE,
+    Profile,
+    WriteMode,
+    ZoneReport,
+)
+
 MIN_LEVEL = 1
 MAX_LEVEL = 10
 # Beyond this, adjacent integers share a float64 or a JavaScript number.
@@ -62,7 +76,6 @@ DP_MAP = (
 )
 REQUIRED_DPS = tuple(dict.fromkeys(dp for zone in DP_MAP for dp in zone))
 WRITABLE = (Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT, Field.AUTO_OFF_SECONDS)
-type WriteMode = Literal["disabled", "multi_dp"]
 
 
 def write_dps(command: Command, zone: int, mode: WriteMode) -> dict[str, Value | str]:
@@ -81,12 +94,6 @@ def write_dps(command: Command, zone: int, mode: WriteMode) -> dict[str, Value |
     ):
         raise BridgeError(ErrorCode.INVALID_COMMAND, "invalid command values")
     return encode_command(command, zone)
-
-
-@dataclass(frozen=True, slots=True)
-class ZoneReport:
-    updates: tuple[Update, ...]
-    invalid_fields: tuple[Field, ...]
 
 
 def _decode_field(field: Field, raw: object, zone: int) -> Value | None:
@@ -171,5 +178,43 @@ def encode_command(command: Command, zone: int) -> dict[str, Value | str]:
             )
         else:
             encoded = value
-        result[mapping[field]] = encoded
+        result[mapping[cast("Field", field)]] = encoded
     return result
+
+
+def prepare_command(command: Command, state: EndpointState) -> Command:
+    state = cast("ZoneState", state)
+    fields = {field for field, _value in command.values}
+    if state.power is not False or Field.POWER in fields:
+        return command
+    # Only an explicit power write starts the firmware's presence-confirmation window.
+    if Field.HEAT_LEVEL in fields:
+        return Command(command.request_id, ((Field.POWER, True), *command.values))
+    if Field.AUTO_OFF_SECONDS in fields:
+        raise BridgeError(ErrorCode.ZONE_OFF, "timer for a side that is off")
+    return command
+
+
+REQUIRED_FIELDS = frozenset((Field.POWER, Field.HEAT_LEVEL, Field.PREHEAT))
+PROFILE = Profile(
+    endpoint_count=2,
+    state_factory=ZoneState,
+    fields=tuple(Field),
+    required_fields=REQUIRED_FIELDS,
+    requested_dps=REQUIRED_DPS,
+    # The fault bitmap is optional, so its absence needs no re-query.
+    query_dps=frozenset(dp for dp in REQUIRED_DPS if dp != FAULT_DP),
+    baseline_dps=frozenset(
+        dp
+        for zone in DP_MAP
+        for field, dp in zip(Field, zone, strict=True)
+        if field in REQUIRED_FIELDS
+    ),
+    decode_report=decode_report,
+    parse_command=lambda payload, request_id: parse_command(
+        payload, generated_id=request_id
+    ),
+    prepare_command=prepare_command,
+    write_dps=write_dps,
+    confirms=Command.matches,
+)

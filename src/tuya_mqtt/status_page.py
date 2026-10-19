@@ -9,7 +9,6 @@ from aiohttp import web
 from prometheus_client import CONTENT_TYPE_LATEST
 
 from .bridge import online
-from .domain import Field
 from .log import sanitize
 from .metrics import Metrics, age
 lazy from .bridge import Bridge
@@ -139,13 +138,13 @@ class StatusServer:
                             "name": config.zones[zone],
                             "reported": {
                                 field.value: getattr(state, field.value)
-                                for field in Field
+                                for field in bridge.profiles[index].fields
                             },
                             "previous": {
                                 field.value: getattr(
                                     view.previous_zones[zone], field.value
                                 )
-                                for field in Field
+                                for field in bridge.profiles[index].fields
                             },
                             "invalid_fields": sorted(
                                 field.value for field in view.invalid_fields[zone]

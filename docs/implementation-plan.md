@@ -722,3 +722,62 @@ separately documented pairing/key procedure unless an offline provisioning
 method is established. If stock firmware fails the offline soak, record that as
 a controller limitation and revisit firmware alternatives as a separate
 decision.
+
+## Curtain infrastructure
+
+Curtains use the same controller ownership, MQTT session, availability, and
+request/result contract as heated bedding. Device profiles define endpoint
+count, state shape, requested datapoints, required baseline fields, command
+validation and encoding, state-dependent preparation, and confirmation. The
+existing Sunbeam configuration and topics retain their meaning.
+
+A curtain has one endpoint, addressed as `<prefix>/<controller>/<zone>`, with
+the same `/set`, `/get`, and `/result` suffixes. Its snapshot contains
+`session_id`, `current_position`, `target_position`, and `motion`. Positions are
+integer percentages: zero is closed and 100 is open. Motion is `opening`,
+`closing`, `stopped`, or null. Missing reports remain null. Both positions are
+required for availability; motion telemetry is optional.
+
+The position-only command is `{"target_position":80}`, optionally with a
+`request_id`. The entire command is validated before writing. Start and stop
+commands, calibration, motor direction settings, and scheduling are outside this
+phase. A confirmed result requires fresh device evidence that the target was
+accepted, without waiting for physical arrival. Current position always comes
+from device reports.
+
+Hoboken exposes `CurrentPosition`, `TargetPosition`, and `PositionState` on a
+HomeKit `WindowCovering` service. It prefers reported motion; when motion is
+unknown, it infers direction from the reported positions. Inferred movement
+cannot detect a stalled motor or a physical stop that leaves an old target in
+the device. It never estimates position from elapsed time. HomeKit writes
+require a confirmed result and usable reported state from the active MQTT
+session. Existing bedding accessory identities remain stable.
+
+The `zemismart-bcd300fb` profile implements the observed Wi-Fi motor on protocol
+3.3. DP 101 is a writable destination but reports only the last completed
+position; normalized positions use `100 - raw`. DP 102 remains `STOP` throughout
+position-based movement and is not motion telemetry. DP 103 is a reversal
+setting, is not reported by this unit, and is never written.
+
+The user approved a hardware-specific state policy on October 18, 2026. A
+successful control acknowledgement, matched by command and sequence with valid
+CRC and return code zero, confirms acceptance and sets the tracked target. It
+does not change current position. Repeated reports of the old position preserve
+the target; a changed reported position reconciles it. Every new connection
+initializes both positions from the reported position and discards any
+remembered target. HomeKit can temporarily show no movement across a reconnect
+while the motor continues moving. This is an explicit exception to the
+reported-target baseline, not a claim that the firmware reports a separate
+target. Late ACKs cannot confirm expired or cancelled requests, and commands are
+never replayed.
+
+The [hardware record](hardware-acceptance.md#zemismart-bcd300fb-qualification)
+records the schema, firmware, orientation, acknowledgements, and live HomeKit
+qualification. Internet-blocked testing is deferred at the user’s request;
+production deployment remains pending. Physical controls are not installed, so
+that acceptance check cannot be exercised here. Writes still default to
+disabled. Do not infer other hardware support from the Zemismart brand.
+
+The test-only `test-curtain` profile retains synthetic datapoints 201–203 and
+separate target/current reports to exercise the general curtain contract on
+protocols 3.3–3.5. Production configuration rejects this test profile.

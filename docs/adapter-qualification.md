@@ -30,14 +30,24 @@ Writes call the public `generate_payload` and `send` methods. TinyTuya continues
 to own the packet format and crypto. The synchronous `set_multiple_values`
 helper has an additional failed-write fallback to individual writes, so it is
 excluded from the adapter. A send-only `None` result is transport completion,
-not confirmation. The controller worker must confirm requested values from fresh
-reports.
+not confirmation. Profiles normally confirm requested values from fresh reports.
+The qualified BCD300FB position path instead requires a successful control
+acknowledgement whose command and sequence match the current write. The adapter
+captures the sent header through TinyTuya’s `raw_sent` and checks parsed
+`raw_recv` messages for the matching identity, valid CRC, and zero return code.
+It retains that identity across intervening queries, clears it for each write
+and connection, and rejects invalid matching acknowledgements. It checks the
+frames of every call, including those a status query reads while it waits for
+its reply, because each call replaces `raw_recv` and the acknowledgement can be
+the frame read ahead of the reply. This profile permits only the observed
+protocol 3.3.
 
 Device22 detection resets the requested DP list inside TinyTuya. An initial
-report missing any mapped DP except the optional fault bitmap (DP 13) causes the
-adapter to restore the complete configured DP set and request status again. The
-worker remains responsible for checking the usable baseline and freshness before
-advertising availability.
+report missing any DP the profile requires causes the adapter to restore the
+profile’s complete requested DP set and request status again. For the Sunbeam
+that is every mapped DP except the optional fault bitmap (DP 13); for the
+BCD300FB it is DP 101. The worker remains responsible for checking the usable
+baseline and freshness before advertising availability.
 
 ## Status reply matching
 
@@ -65,9 +75,11 @@ during synchronization, sends the query with a full request timeout and starts a
 new deadline, so either can add up to two more request timeouts. The reply
 supersedes the pushes read in the meantime, so they are discarded. A queued
 empty heartbeat or write ACK, a read that times out, and an empty frame with the
-query’s command are skipped the same way. When TinyTuya cannot say which query
-was sent, no frame is accepted and the deadline ends the wait, because accepting
-an unrelated frame would return a push as the status.
+query’s command are skipped the same way. Before a frame read during the wait is
+discarded, the adapter checks it against the pending BCD300FB write, so the wait
+cannot lose that profile’s control ACK. When TinyTuya cannot say which query was
+sent, no frame is accepted and the deadline ends the wait, because accepting an
+unrelated frame would return a push as the status.
 
 The adapter runs each `receive()` of the wait with the socket retry limit at
 zero and restores the limit before it asks again. Synchronization uses a limit
@@ -103,10 +115,10 @@ adapter asks again after that error, which restarts detection as if the
 rejection had come first, instead of treating it as a device failure.
 
 The adapter reads the `raw_sent` and `raw_recv` attributes of TinyTuya’s
-`Device` to know which command it sent and which frame it just read. These are
-undocumented internals, but `uv.lock` pins the version and a TinyTuya update
-already requires repeating this qualification. Renaming either attribute fails
-every status query immediately.
+`Device` to know which command it sent, which frame it just read, and whether
+that frame acknowledges a BCD300FB write. These are undocumented internals, but
+`uv.lock` pins the version and a TinyTuya update already requires repeating this
+qualification. Renaming either attribute fails every status query immediately.
 
 ## Maintained cases
 
@@ -119,7 +131,9 @@ every status query immediately.
 A delayed-response case exceeds the request deadline and checks that reconnect
 reads the applied state without another write. A status query tolerates a queued
 empty heartbeat ACK by receiving until the reply to the query or its monotonic
-deadline. The ACK itself does not update state or freshness.
+deadline. The ACK itself does not update state or freshness. The BCD300FB
+control ACK can update the accepted target, but never current position or status
+age.
 
 Test support queues zero, one, two, four, or eight countdown pushes, or one
 complete but stale push, ahead of the simulator’s reply to a status query. It
@@ -136,6 +150,16 @@ and a later poll fails at once without reconnecting. Deterministic cases with a
 fake clock and a bounded fake device cover the same loops, the retry limit
 around each wait, and the start of the deadline, so a regression in the deadline
 fails instead of hanging.
+
+BCD300FB cases also exercise delayed position reports with an immediate empty
+control ACK, preservation of the acknowledged target across stale position
+polls, and reconnect during movement without replay. A fresh position report
+cannot replace a missing control ACK for this profile. Deterministic cases put
+the control ACK ahead of, behind, and between the frames a status query reads
+while it waits for its reply, and check that a rejected ACK read there fails the
+connection. A case with real TinyTuya over TCP has a status query read the ACK
+ahead of its reply. Sanitized observations are stored in
+`tests/fixtures/zemismart-bcd300fb.json`.
 
 Instrumented existing simulator handlers count decoded concrete writes,
 excluding all-null device22 status queries. Fault cases assert one decoded
