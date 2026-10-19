@@ -134,7 +134,8 @@ class Metrics:
             config = bridge.config.controllers[index]
             name = str(sanitize(config.name, self._secrets))
             zone_names = tuple(
-                str(sanitize(zone, self._secrets)) for zone in config.zones
+                str(sanitize(config.zone_name(endpoint) or "", self._secrets))
+                for endpoint in range(bridge.profiles[index].endpoint_count)
             )
             labels.append((name, zone_names))
             view = worker.snapshot
@@ -156,20 +157,20 @@ class Metrics:
                 strict=True,
             ):
                 metric.add_metric([name], value)
-            if (fault := view.zones[0].fault_code) is not None:
+            if (fault := view.endpoints[0].fault_code) is not None:
                 faults.add_metric([name], fault)
             errors.add_metric(
                 [name, view.last_error.value if view.last_error else "none"], 1
             )
-            for zone, zone_name in enumerate(zone_names):
-                count, total = bridge.latency_totals.get((index, zone), (0, 0.0))
+            for endpoint, zone_name in enumerate(zone_names):
+                count, total = bridge.latency_totals.get((index, endpoint), (0, 0.0))
                 durations.add_metric([name, zone_name], count, total)
-        for (index, zone, outcome, error), count in bridge.outcomes.items():
+        for (index, endpoint, outcome, error), count in bridge.outcomes.items():
             name, zone_names = labels[index]
             outcomes.add_metric(
                 [
                     name,
-                    zone_names[zone],
+                    zone_names[endpoint],
                     outcome.value,
                     error.value if error else "none",
                 ],

@@ -95,7 +95,7 @@ class ControllerConfig(StrictModel):
     protocol_version: Literal["3.3", "3.4", "3.5"]
     local_key: SecretReference
     profile: Text
-    zones: tuple[Name, ...]
+    zones: tuple[Name, ...] | None = None
     write_mode: WriteMode = "disabled"
 
     @model_validator(mode="after")
@@ -104,21 +104,29 @@ class ControllerConfig(StrictModel):
         if self.protocol_version not in profile.protocols:
             message = "unsupported protocol for profile"
             raise ValueError(message)
-        if len(self.zones) != profile.endpoint_count:
-            message = "incorrect endpoint count for profile"
+        if profile.endpoint_count > 1:
+            if self.zones is None or len(self.zones) != profile.endpoint_count:
+                message = "incorrect zone count for profile"
+                raise ValueError(message)
+        elif "zones" in self.model_fields_set:
+            message = "zones apply only to profiles with more than one endpoint"
             raise ValueError(message)
         address = ip_address(self.ip)
         if address.is_unspecified or address.is_multicast:
             message = "controller must have a unicast address"
             raise ValueError(message)
+        zones = self.zones or ()
         if (
             self.name == "bridge"
-            or len(set(self.zones)) != len(self.zones)
-            or "availability" in self.zones
+            or len(set(zones)) != len(zones)
+            or "availability" in zones
         ):
             message = "duplicate or reserved topic path"
             raise ValueError(message)
         return self
+
+    def zone_name(self, endpoint: int) -> str | None:
+        return None if self.zones is None else self.zones[endpoint]
 
 
 class Config(StrictModel):

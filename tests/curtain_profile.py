@@ -10,7 +10,7 @@ from tuya_mqtt.domain import (
     Update,
     Value,
 )
-from tuya_mqtt.profiles.base import Profile, WriteMode, ZoneReport
+from tuya_mqtt.profiles.base import EndpointReport, Profile, WriteMode
 from tuya_mqtt.profiles.curtain import parse_command
 
 # Synthetic DP numbers keep this fixture from implying a verified hardware mapping.
@@ -22,7 +22,7 @@ DP_MAP = {
 BASELINE: dict[str, object] = {"201": 100, "202": 100, "203": "stopped"}
 
 
-def decode_report(dps: Mapping[str, object], _zone: int) -> ZoneReport:
+def decode_report(dps: Mapping[str, object], _endpoint: int) -> EndpointReport:
     updates: list[Update] = []
     invalid: list[CurtainField] = []
     for field, dp in DP_MAP.items():
@@ -38,10 +38,12 @@ def decode_report(dps: Mapping[str, object], _zone: int) -> ZoneReport:
         updates.append((field, value))
         if value is None:
             invalid.append(field)
-    return ZoneReport(tuple(updates), tuple(invalid))
+    return EndpointReport(tuple(updates), tuple(invalid))
 
 
-def write_dps(command: Command, _zone: int, mode: WriteMode) -> dict[str, Value | str]:
+def write_dps(
+    command: Command, _endpoint: int, mode: WriteMode
+) -> dict[str, Value | str]:
     if mode == "disabled":
         raise BridgeError(ErrorCode.WRITE_DISABLED, "controller writes are disabled")
     _field, value = command.values[0]

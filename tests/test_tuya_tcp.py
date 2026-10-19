@@ -531,9 +531,9 @@ def test_worker_with_real_adapter_and_both_zones(
         physical_change = {"14": False, "20": "level_4"}
         simulator.mock.dps.update(physical_change)
         assert simulator.mock.push(physical_change)
-        wait_worker(lambda: worker.snapshot.zones[0].power is False, worker)
-        assert worker.snapshot.zones[0].heat_level == 4
-        assert worker.snapshot.zones[1].preheat is True
+        wait_worker(lambda: worker.snapshot.endpoints[0].power is False, worker)
+        assert worker.snapshot.endpoints[0].heat_level == 4
+        assert worker.snapshot.endpoints[1].preheat is True
         revision = worker.snapshot.refresh_revision
         worker.refresh()
         wait_worker(lambda: worker.snapshot.refresh_revision > revision, worker)
@@ -561,8 +561,8 @@ def test_worker_write_failure_reconnects_without_replay(
         wait_worker(
             lambda: worker.snapshot.online and worker.snapshot.generation >= 2, worker
         )
-        assert worker.snapshot.zones[0].heat_level == 6
-        assert worker.snapshot.zones[0].power is True
+        assert worker.snapshot.endpoints[0].heat_level == 6
+        assert worker.snapshot.endpoints[0].power is True
         assert simulator.writes == [{"14": True, "20": "level_6"}]
     finally:
         worker.stop()
@@ -586,7 +586,7 @@ def test_worker_mqtt_session_change_uses_fresh_device_connection(
             worker,
         )
         assert worker.snapshot.generation == 2
-        assert worker.snapshot.zones[0].power is True
+        assert worker.snapshot.endpoints[0].power is True
         assert simulator.mock.server.connections == 2
         assert simulator.writes == []
     finally:

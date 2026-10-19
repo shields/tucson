@@ -231,7 +231,9 @@ async def test_image_reports_dependency_outages_and_stops_on_signals(
             assert snapshot["versions"]["revision"] == os.environ["TUCSON_REVISION"]
             assert snapshot["versions"]["application"] == os.environ["TUCSON_VERSION"]
             assert KEY not in json.dumps(snapshot)
-            assert snapshot["controllers"][0]["zones"][0]["reported"]["power"] is None
+            assert (
+                snapshot["controllers"][0]["endpoints"][0]["reported"]["power"] is None
+            )
         async with client.get(base) as response:
             assert response.status == 200
             assert "EventSource" in await response.text()

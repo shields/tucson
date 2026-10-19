@@ -158,9 +158,11 @@ class ControllerCore:
         self.profile = get_profile(config.profile)
         self.view = ControllerSnapshot(
             progress_at=clock(),
-            zones=self.profile.initial_states(),
-            previous_zones=self.profile.initial_states(),
-            invalid_fields=tuple(frozenset() for _ in config.zones),
+            endpoints=self.profile.initial_states(),
+            previous_endpoints=self.profile.initial_states(),
+            invalid_fields=tuple(
+                frozenset() for _ in range(self.profile.endpoint_count)
+            ),
         )
         self._factory = factory
         self._clock = clock
@@ -200,7 +202,7 @@ class ControllerCore:
         log = self._log.info if outcome is Outcome.CONFIRMED else self._log.error
         log(
             "command_result",
-            zone=self.config.zones[request.zone],
+            zone=self.config.zone_name(request.endpoint),
             operation="command",
             request_id=request.command.request_id,
             outcome=outcome.value,
@@ -248,11 +250,13 @@ class ControllerCore:
     def _reset_baseline(self, session_id: str | None, *, new_connection: bool) -> None:
         self._baseline_started = self._clock()
         current_known = any(
-            getattr(zone, field.value) is not None
-            for zone in self.view.zones
+            getattr(state, field.value) is not None
+            for state in self.view.endpoints
             for field in self.profile.fields
         )
-        previous = self.view.zones if current_known else self.view.previous_zones
+        previous = (
+            self.view.endpoints if current_known else self.view.previous_endpoints
+        )
         connection = (
             ConnectionState.CONNECTING
             if new_connection
@@ -266,14 +270,16 @@ class ControllerCore:
             reconnects=self.view.reconnects
             + int(new_connection and self.view.generation > 0),
             session_id=session_id,
-            previous_zones=previous,
+            previous_endpoints=previous,
             previous_full_status_at=(
                 self.view.last_full_status
                 if current_known
                 else self.view.previous_full_status_at
             ),
-            zones=self.profile.initial_states(),
-            invalid_fields=tuple(frozenset() for _ in self.config.zones),
+            endpoints=self.profile.initial_states(),
+            invalid_fields=tuple(
+                frozenset() for _ in range(self.profile.endpoint_count)
+            ),
             synchronized_at=None,
             last_full_status=None,
             last_traffic=None,
@@ -300,11 +306,11 @@ class ControllerCore:
     def _report(self, dps: dict[str, object]) -> None:
         now = self._clock()
         reports = tuple(
-            self.profile.decode_report(dps, zone)
-            for zone in range(self.profile.endpoint_count)
+            self.profile.decode_report(dps, endpoint)
+            for endpoint in range(self.profile.endpoint_count)
         )
-        zones = tuple(
-            self.profile.merge_report(self.view.zones[index], report.updates)
+        endpoints = tuple(
+            self.profile.merge_report(self.view.endpoints[index], report.updates)
             for index, report in enumerate(reports)
         )
         invalid = tuple(
@@ -316,9 +322,9 @@ class ControllerCore:
             for index, report in enumerate(reports)
         )
         error = ErrorCode.COMPATIBILITY if any(invalid) else None
-        self._log_fault(zones[0].fault_code)
+        self._log_fault(endpoints[0].fault_code)
         self._publish(
-            zones=zones,
+            endpoints=endpoints,
             invalid_fields=tuple(frozenset(fields) for fields in invalid),
             last_traffic=now,
             last_error=error
@@ -326,17 +332,17 @@ class ControllerCore:
             else self.view.last_error,
         )
         if self._pending is not None and self._pending.written:
-            report = reports[self._pending.request.zone]
+            report = reports[self._pending.request.endpoint]
             self._pending.confirmation = self._pending.confirmation.merge(
                 report.updates
             )
         if any(self.profile.required_fields & fields for fields in invalid):
             raise BridgeError(ErrorCode.COMPATIBILITY, "invalid required DP")
         if dps.keys() >= self.profile.baseline_dps and all(
-            zone.usable for zone in zones
+            state.usable for state in endpoints
         ):
             self._publish(last_full_status=now)
-        if all(zone.usable for zone in zones) and not self.view.online:
+        if all(state.usable for state in endpoints) and not self.view.online:
             self._publish(
                 connection=ConnectionState.ONLINE, synchronized_at=now, last_error=error
             )
@@ -362,7 +368,7 @@ class ControllerCore:
         if not started and now >= request.start_by:
             return ErrorCode.EXPIRED
         if any(
-            field in self.view.invalid_fields[request.zone]
+            field in self.view.invalid_fields[request.endpoint]
             for field, _value in request.command.values
         ):
             return ErrorCode.COMPATIBILITY
@@ -383,9 +389,10 @@ class ControllerCore:
         updates = acknowledge(pending.command)
         pending.acknowledged = True
         pending.confirmation = pending.confirmation.merge(updates)
-        zones = list(self.view.zones)
-        zones[pending.request.zone] = zones[pending.request.zone].merge(updates)
-        self._publish(zones=tuple(zones))
+        endpoints = list(self.view.endpoints)
+        endpoint = pending.request.endpoint
+        endpoints[endpoint] = endpoints[endpoint].merge(updates)
+        self._publish(endpoints=tuple(endpoints))
 
     def _command_step(self, device: DeviceClient) -> None:
         pending = self._pending
@@ -402,10 +409,10 @@ class ControllerCore:
                 return
             try:
                 command = self.profile.prepare_command(
-                    request.command, self.view.zones[request.zone]
+                    request.command, self.view.endpoints[request.endpoint]
                 )
                 dps = self.profile.write_dps(
-                    command, request.zone, self.config.write_mode
+                    command, request.endpoint, self.config.write_mode
                 )
             except BridgeError as error:
                 self._finish(request, Outcome.REJECTED, error.code)
@@ -425,7 +432,7 @@ class ControllerCore:
         if not pending.written:
             self._log.info(
                 "command_write",
-                zone=self.config.zones[pending.request.zone],
+                zone=self.config.zone_name(pending.request.endpoint),
                 operation="command",
                 request_id=pending.request.command.request_id,
                 dps=pending.dps,
@@ -568,7 +575,7 @@ class ControllerWorker:
 
     def submit(
         self,
-        zone: int,
+        endpoint: int,
         command: Command,
         session_id: str,
         *,
@@ -576,7 +583,7 @@ class ControllerWorker:
     ) -> CommandResult | None:
         now = self._clock() if received_at is None else received_at
         request = Request(
-            zone,
+            endpoint,
             command,
             session_id,
             self.snapshot.generation,

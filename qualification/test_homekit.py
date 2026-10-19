@@ -42,10 +42,8 @@ async def test_controller_through_paired_homekit(
     if curtain:
         simulator.mock.dps.clear()
         simulator.mock.dps.update(CURTAIN_BASELINE)
-        config_data["controllers"][0] |= {
-            "profile": "test-curtain",
-            "zones": ["curtain"],
-        }
+        del config_data["controllers"][0]["zones"]
+        config_data["controllers"][0]["profile"] = "test-curtain"
     daemon: Daemon = configure_process(
         config_path, config_data, secret_env, broker, simulator
     )

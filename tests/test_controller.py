@@ -45,10 +45,10 @@ class Harness:
         self.tick(3)
         assert self.core.view.online
 
-    def request(self, command: Command, zone: int = 0) -> Request:
+    def request(self, command: Command, endpoint: int = 0) -> Request:
         now = self.clock()
         return Request(
-            zone,
+            endpoint,
             command,
             "session",
             self.core.view.generation,
@@ -57,8 +57,8 @@ class Harness:
             now + CONFIRMATION_TIMEOUT,
         )
 
-    def admit(self, payload: bytes, zone: int = 0) -> Request:
-        request = self.request(parse_command(payload), zone)
+    def admit(self, payload: bytes, endpoint: int = 0) -> Request:
+        request = self.request(parse_command(payload), endpoint)
         assert self.mailbox.admit(request, writes_enabled=True) is None
         return request
 
@@ -94,7 +94,7 @@ def test_full_baseline_and_periodic_maintenance(harness: Harness) -> None:
     harness.online()
     assert harness.core.view.generation == 1
     assert harness.core.view.last_full_status == 0
-    assert harness.core.view.zones[0].power is False
+    assert harness.core.view.endpoints[0].power is False
     before = len(harness.device.calls)
     harness.tick()
     assert harness.device.calls[before][0] == "receive"
@@ -117,21 +117,21 @@ def test_partial_baseline_merges_and_unknown_countdowns(harness: Harness) -> Non
     harness.push({"24": False, "15": False, "21": "level_8", "25": True})
     assert harness.core.view.online
     assert harness.core.view.last_full_status is None
-    assert harness.core.view.zones[1].heat_level == 8
-    assert harness.core.view.zones[0].remaining_seconds is None
-    assert harness.core.view.zones[1].preheat_remaining_seconds is None
+    assert harness.core.view.endpoints[1].heat_level == 8
+    assert harness.core.view.endpoints[0].remaining_seconds is None
+    assert harness.core.view.endpoints[1].preheat_remaining_seconds is None
 
 
 def test_physical_pushes_do_not_invent_countdowns(harness: Harness) -> None:
     harness.online()
     harness.push({"14": True, "20": "level_2", "28": 1700, "999": "unrelated"})
-    state = harness.core.view.zones[0]
+    state = harness.core.view.endpoints[0]
     assert state.power is True
     assert state.heat_level == 2
     assert state.remaining_seconds == 1700
     harness.clock.advance(5)
     harness.tick()
-    assert harness.core.view.zones[0].remaining_seconds == 1700
+    assert harness.core.view.endpoints[0].remaining_seconds == 1700
     assert harness.core.view.last_full_status == 0
 
 
@@ -156,7 +156,7 @@ def test_optional_compatibility_error_blocks_dependent_command(
     harness.push({"26": "unexpected"})
     assert harness.core.view.online
     assert harness.core.view.last_error is ErrorCode.COMPATIBILITY
-    assert harness.core.view.zones[0].auto_off_seconds is None
+    assert harness.core.view.endpoints[0].auto_off_seconds is None
     harness.admit(b'{"auto_off_seconds":3600}')
     harness.tick()
     result = harness.mailbox.drain_results()[0].result
@@ -180,12 +180,12 @@ def fault_log(harness: Harness) -> list[tuple[str, str, object, object]]:
 
 def test_fault_code_is_reported_and_logged_when_it_changes(harness: Harness) -> None:
     harness.online()
-    assert [zone.fault_code for zone in harness.core.view.zones] == [0, 0]
+    assert [state.fault_code for state in harness.core.view.endpoints] == [0, 0]
     assert not fault_events(harness)
     logged = len(harness.log.events)
     harness.push({"13": 4})
     assert harness.core.view.online
-    assert [zone.fault_code for zone in harness.core.view.zones] == [4, 4]
+    assert [state.fault_code for state in harness.core.view.endpoints] == [4, 4]
     harness.push({"13": 4, "14": True})
     harness.push({"14": False})
     harness.push({"13": 6})
@@ -232,14 +232,14 @@ def test_pushed_fault_survives_a_status_refresh(harness: Harness) -> None:
     harness.mailbox.refresh()
     harness.tick()
     assert harness.device.calls[-1][0] == "status"
-    assert [zone.fault_code for zone in harness.core.view.zones] == [4, 4]
+    assert [state.fault_code for state in harness.core.view.endpoints] == [4, 4]
     assert fault_log(harness) == [("error", "controller_fault", 0, 4)]
 
 
 def test_fault_present_at_connection_is_logged(harness: Harness) -> None:
     harness.device.state["13"] = 2
     harness.online()
-    assert [zone.fault_code for zone in harness.core.view.zones] == [2, 2]
+    assert [state.fault_code for state in harness.core.view.endpoints] == [2, 2]
     assert harness.core.view.online
     assert fault_log(harness) == [("error", "controller_fault", None, 2)]
 
@@ -253,11 +253,11 @@ def test_invalid_fault_code_is_a_visible_optional_compatibility_error(
     assert harness.core.view.online
     assert harness.core.view.last_error is ErrorCode.COMPATIBILITY
     assert harness.core.view.invalid_fields == (frozenset({Field.FAULT_CODE}),) * 2
-    assert [zone.fault_code for zone in harness.core.view.zones] == [None, None]
+    assert [state.fault_code for state in harness.core.view.endpoints] == [None, None]
     assert not fault_events(harness)
     harness.push({"13": 0})
     assert harness.core.view.last_error is None
-    assert [zone.fault_code for zone in harness.core.view.zones] == [0, 0]
+    assert [state.fault_code for state in harness.core.view.endpoints] == [0, 0]
     assert not fault_events(harness)
 
 
@@ -322,7 +322,7 @@ def test_full_status_does_not_require_the_fault_dp(harness: Harness) -> None:
     del harness.device.state["13"]
     harness.online()
     assert harness.core.view.last_full_status == 0
-    assert [zone.fault_code for zone in harness.core.view.zones] == [None, None]
+    assert [state.fault_code for state in harness.core.view.endpoints] == [None, None]
     assert not fault_events(harness)
     harness.clock.advance(30)
     harness.tick(2)
@@ -340,8 +340,8 @@ def test_fault_does_not_change_availability_or_command_admission(
     assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
     assert harness.core.view.online
     assert harness.core.view.last_error is None
-    assert harness.core.view.zones[0].heat_level == 6
-    assert harness.core.view.zones[0].fault_code == fault
+    assert harness.core.view.endpoints[0].heat_level == 6
+    assert harness.core.view.endpoints[0].fault_code == fault
 
 
 def test_reconnect_never_merges_previous_baseline(harness: Harness) -> None:
@@ -352,9 +352,9 @@ def test_reconnect_never_merges_previous_baseline(harness: Harness) -> None:
     harness.tick()
     assert harness.core.view.generation == 2
     assert harness.core.view.reconnects == 1
-    assert harness.core.view.previous_zones[0].heat_level == 4
+    assert harness.core.view.previous_endpoints[0].heat_level == 4
     assert harness.core.view.previous_full_status_at is not None
-    assert harness.core.view.zones[0].heat_level is None
+    assert harness.core.view.endpoints[0].heat_level is None
     assert not harness.core.view.online
     assert harness.core.view.last_full_status is None
     assert harness.core.view.last_error is ErrorCode.CONNECTION_LOST
@@ -368,8 +368,8 @@ def test_broker_session_change_requires_new_full_read(harness: Harness) -> None:
     assert harness.core.view.session_id == "new-session"
     assert harness.core.view.generation == 2
     assert not harness.core.view.online
-    assert harness.core.view.zones[0].heat_level is None
-    assert harness.core.view.previous_zones[0].heat_level == 4
+    assert harness.core.view.endpoints[0].heat_level is None
+    assert harness.core.view.previous_endpoints[0].heat_level == 4
     harness.mailbox.refresh()
     harness.tick()
     assert harness.core.view.online
@@ -377,12 +377,12 @@ def test_broker_session_change_requires_new_full_read(harness: Harness) -> None:
 
 def test_explicit_refresh_republishes_unchanged_state(harness: Harness) -> None:
     harness.online()
-    before = harness.core.view.zones
+    before = harness.core.view.endpoints
     revision = harness.core.view.refresh_revision
     harness.mailbox.refresh()
     harness.mailbox.refresh()
     harness.tick()
-    assert harness.core.view.zones == before
+    assert harness.core.view.endpoints == before
     assert harness.core.view.refresh_revision == revision + 1
     assert harness.device.calls[-1][0] == "status"
 
@@ -468,7 +468,7 @@ def test_serialized_command_confirmation(zone: int, harness: Harness) -> None:
     assert result.result.outcome is Outcome.CONFIRMED
     power_dp, level_dp = ("14", "20") if zone == 0 else ("15", "21")
     assert harness.device.writes == [{power_dp: True, level_dp: "level_6"}]
-    assert harness.core.view.zones[zone].heat_level == 6
+    assert harness.core.view.endpoints[zone].heat_level == 6
     assert harness.core.view.active is None
 
 
@@ -497,7 +497,7 @@ def test_completion_is_queued_after_the_state_that_confirms_it(
     request = harness.admit(b'{"power":true,"heat_level":6}')
     harness.tick(8)
     assert harness.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
-    assert [request.command.matches(view.zones[0]) for view in published] == [True]
+    assert [request.command.matches(view.endpoints[0]) for view in published] == [True]
 
 
 @pytest.mark.parametrize("zone", [0, 1])
@@ -511,7 +511,7 @@ def test_level_for_a_side_that_is_off_is_sent_with_power_on(
     power_dp, level_dp = ("14", "20") if zone == 0 else ("15", "21")
     assert harness.device.writes == [{power_dp: True, level_dp: "level_6"}]
     assert list(harness.device.writes[0]) == [power_dp, level_dp]
-    assert harness.core.view.zones[zone].power is True
+    assert harness.core.view.endpoints[zone].power is True
 
 
 def test_the_packet_is_logged_before_it_is_written(harness: Harness) -> None:
@@ -680,8 +680,8 @@ def test_inflight_session_loss_leaves_the_write_unconfirmed(harness: Harness) ->
     result = harness.mailbox.drain_results()[0].result
     assert result.outcome is Outcome.UNCONFIRMED
     assert harness.device.writes == [{"14": True, "20": "level_6"}]
-    assert harness.core.view.zones[0].heat_level == 6
-    assert harness.core.view.zones[0].power is True
+    assert harness.core.view.endpoints[0].heat_level == 6
+    assert harness.core.view.endpoints[0].power is True
 
 
 def test_write_failure_is_unconfirmed_without_rollback_or_replay(
@@ -697,7 +697,7 @@ def test_write_failure_is_unconfirmed_without_rollback_or_replay(
     harness.device.write_error = None
     harness.clock.advance(1)
     harness.tick()
-    assert harness.core.view.zones[0].power is True
+    assert harness.core.view.endpoints[0].power is True
     assert len(harness.device.writes) == 1
 
 
@@ -712,7 +712,7 @@ def test_late_matching_report_does_not_change_terminal_result(harness: Harness) 
     assert result.result.outcome is Outcome.UNCONFIRMED
     harness.device.state["14"] = True
     harness.push({"14": True})
-    assert harness.core.view.zones[0].power is True
+    assert harness.core.view.endpoints[0].power is True
     assert harness.core.view.last_completion == result
     assert not harness.mailbox.drain_results()
 
@@ -726,7 +726,7 @@ def test_report_after_confirmation_deadline_is_unconfirmed(harness: Harness) -> 
     result = harness.mailbox.drain_results()[0].result
     assert result.outcome is Outcome.UNCONFIRMED
     assert result.error_code is ErrorCode.CONFIRMATION_TIMEOUT
-    assert harness.core.view.zones[0].power is True
+    assert harness.core.view.endpoints[0].power is True
 
 
 def test_queue_and_completion_backpressure_do_not_block_maintenance(
@@ -851,5 +851,5 @@ def test_deadline_during_the_write_is_unconfirmed_and_reads_back(
     assert harness.device.writes == [{"14": True, "20": "level_6"}]
     harness.tick()
     assert harness.device.calls[-1][0] == "status"
-    assert harness.core.view.zones[0].heat_level == 6
-    assert harness.core.view.zones[0].power is True
+    assert harness.core.view.endpoints[0].heat_level == 6
+    assert harness.core.view.endpoints[0].power is True

@@ -36,11 +36,10 @@ def controller_config(
 @pytest.fixture
 def zemismart_config(controller_config: ControllerConfig) -> ControllerConfig:
     return ControllerConfig.model_validate(
-        controller_config.model_dump()
+        controller_config.model_dump(exclude={"zones"})
         | {
             "profile": "zemismart-bcd300fb",
             "protocol_version": "3.3",
-            "zones": ("curtain",),
             "write_mode": "multi_dp",
         }
     )

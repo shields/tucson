@@ -101,11 +101,11 @@ def test_fault_code_metric_is_absent_until_reported(
     key = ("tuya_mqtt_controller_fault_code", (("controller", "bed"),))
     assert key not in samples(metrics)
     worker.view = replace(
-        worker.view, zones=(ZoneState(fault_code=0), ZoneState(fault_code=0))
+        worker.view, endpoints=(ZoneState(fault_code=0), ZoneState(fault_code=0))
     )
     assert samples(metrics)[key] == 0
     worker.view = replace(
-        worker.view, zones=(ZoneState(fault_code=12), ZoneState(fault_code=12))
+        worker.view, endpoints=(ZoneState(fault_code=12), ZoneState(fault_code=12))
     )
     assert samples(metrics)[key] == 12
 

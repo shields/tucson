@@ -94,22 +94,22 @@ def submit(curtain: Harness, target: int = 80) -> None:
 def test_acknowledgement_confirms_before_arrival_and_survives_polls(
     curtain: Harness,
 ) -> None:
-    assert curtain.core.view.zones == (CurtainState(54, 54),)
+    assert curtain.core.view.endpoints == (CurtainState(54, 54),)
     submit(curtain)
     curtain.tick(2)
     assert not curtain.mailbox.drain_results()
-    assert curtain.core.view.zones == (CurtainState(54, 54),)
+    assert curtain.core.view.endpoints == (CurtainState(54, 54),)
     curtain.device.write_acknowledged = True
     curtain.tick(2)
     assert curtain.mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
-    assert curtain.core.view.zones == (CurtainState(54, 80),)
+    assert curtain.core.view.endpoints == (CurtainState(54, 80),)
     curtain.mailbox.refresh()
     curtain.tick()
-    assert curtain.core.view.zones == (CurtainState(54, 80),)
+    assert curtain.core.view.endpoints == (CurtainState(54, 80),)
     curtain.push({"101": 20})
-    assert curtain.core.view.zones == (CurtainState(80, 80),)
+    assert curtain.core.view.endpoints == (CurtainState(80, 80),)
     curtain.push({"101": 60})
-    assert curtain.core.view.zones == (CurtainState(40, 40),)
+    assert curtain.core.view.endpoints == (CurtainState(40, 40),)
     assert curtain.device.writes == [{"101": 20}]
 
 
@@ -130,7 +130,7 @@ def test_late_ack_cannot_change_target(curtain: Harness) -> None:
     curtain.clock.advance(9)
     curtain.mailbox.refresh()
     curtain.tick()
-    assert curtain.core.view.zones == (CurtainState(54, 54),)
+    assert curtain.core.view.endpoints == (CurtainState(54, 54),)
     curtain.tick(3)
     assert curtain.mailbox.drain_results()[0].result.outcome is Outcome.UNCONFIRMED
 
@@ -147,7 +147,7 @@ def test_reconnect_resets_target_without_replay(
     assert not curtain.core.view.online
     curtain.clock.advance(2)
     curtain.tick(3)
-    assert curtain.core.view.zones == (CurtainState(54, 54),)
+    assert curtain.core.view.endpoints == (CurtainState(54, 54),)
     assert curtain.core.view.generation == 2
     assert curtain.device.writes == [{"101": 20}]
 
@@ -158,7 +158,7 @@ def test_session_reset_drops_accepted_target(curtain: Harness) -> None:
     curtain.tick(2)
     curtain.mailbox.set_session("new")
     curtain.tick(3)
-    assert curtain.core.view.zones == (CurtainState(54, 54),)
+    assert curtain.core.view.endpoints == (CurtainState(54, 54),)
     assert curtain.device.writes == [{"101": 20}]
 
 

@@ -39,10 +39,14 @@ bridge explicitly.
 Copy `config.example.json` to an untracked private configuration file. Replace
 the example device identity/address, verify the protocol version, and name the
 zones in A/B order. The example protocol, 3.3, matches the one observed on the
-Sunbeam PP21KQ controller; confirm it for any other device. Each controller,
-even one with two zones, is driven by exactly one bridge instance. Each
-controller’s optional TCP `port` defaults to 6668. Every address and port pair
-must be unique, so two controllers can share an address only on different ports.
+Sunbeam PP21KQ controller; confirm it for any other device. A profile with more
+than one endpoint, such as the Sunbeam, requires `zones`, one name per endpoint.
+“Zone” is the Sunbeam’s term for one heated side. A profile with a single
+endpoint, such as a curtain, has no zones, and its configuration is rejected if
+it has a `zones` key. Each controller, even one with two zones, is driven by
+exactly one bridge instance. Each controller’s optional TCP `port` defaults
+to 6668. Every address and port pair must be unique, so two controllers can
+share an address only on different ports.
 
 Use `{"env": "VARIABLE_NAME"}` or `{"file": "/mounted/secret"}` for each local
 key and MQTT password. A local key must be exactly 16 ASCII bytes. Secret files
@@ -89,8 +93,8 @@ before enabling production writes.
 
 ## Zemismart BCD300FB
 
-Use profile `zemismart-bcd300fb`, protocol `3.3`, and one zone for the Wi-Fi
-motor documented in the
+Use profile `zemismart-bcd300fb`, protocol `3.3`, and no `zones` key for the
+Wi-Fi motor documented in the
 [hardware record](hardware-acceptance.md#zemismart-bcd300fb-qualification). A
 controller entry has this shape; replace the placeholder identity and secret
 reference with the private setup values:
@@ -102,16 +106,20 @@ reference with the private setup values:
   "ip": "192.0.2.11",
   "protocol_version": "3.3",
   "profile": "zemismart-bcd300fb",
-  "zones": ["curtain"],
   "local_key": { "file": "/mounted/secrets/curtain-local-key" },
   "write_mode": "disabled"
 }
 ```
 
-For an authorized movement test, set `write_mode` to `multi_dp` and publish
-`{"target_position":80}` to `tuya/curtain/curtain/set`. Zero is fully closed and
-100 is fully open. Only position DP 101 is written; operation and reversal
-settings are untouched. The profile rejects other protocol versions.
+A single-endpoint controller has no zone level in its topics. With topic prefix
+`tuya`, this controller publishes its state to `tuya/curtain`, takes commands at
+`tuya/curtain/set` and refresh requests at `tuya/curtain/get`, reports results
+at `tuya/curtain/result`, and reports availability at
+`tuya/curtain/availability`. For an authorized movement test, set `write_mode`
+to `multi_dp` and publish `{"target_position":80}` to `tuya/curtain/set`. Zero
+is fully closed and 100 is fully open. Only position DP 101 is written;
+operation and reversal settings are untouched. The profile rejects other
+protocol versions.
 
 This firmware reports its completed position, not progress during movement.
 Tucson tracks a target only after the matching successful control ACK. Repeated
@@ -159,7 +167,7 @@ routes are read-only:
 | `/healthz` | HTTP 200 while required coordination loops make progress; otherwise HTTP 503. Dependency outages alone do not make the process unhealthy.                                           |
 | `/readyz`  | HTTP 200 when MQTT and all configured controller baselines are usable; otherwise HTTP 503 with reasons. A healthy controller can still serve commands while another is unavailable. |
 | `/metrics` | Prometheus connectivity, freshness, reconnect, failure, command outcome/latency, queue-depth, progress, and fault-bitmap measurements.                                              |
-| `/`        | Live controller/zone state, previous snapshots, freshness ages, pending requests, errors, and software versions.                                                                    |
+| `/`        | Live controller and endpoint state, previous snapshots, freshness ages, pending requests, errors, and software versions.                                                            |
 | `/events`  | JSON status snapshots over Server-Sent Events.                                                                                                                                      |
 
 The status stream admits at most 16 clients. Each keeps only its latest queued

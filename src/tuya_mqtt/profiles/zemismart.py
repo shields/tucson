@@ -13,18 +13,18 @@ from tuya_mqtt.domain import (
     Value,
 )
 
-from .base import Profile, WriteMode, ZoneReport
+from .base import EndpointReport, Profile, WriteMode
 from .curtain import parse_command
 
 MAX_POSITION = 100
 
 
-def decode_report(dps: Mapping[str, object], _zone: int) -> ZoneReport:
+def decode_report(dps: Mapping[str, object], _endpoint: int) -> EndpointReport:
     if "101" not in dps:
-        return ZoneReport((), ())
+        return EndpointReport((), ())
     raw = dps["101"]
     valid = type(raw) is int and 0 <= raw <= MAX_POSITION
-    return ZoneReport(
+    return EndpointReport(
         ((CurtainField.CURRENT_POSITION, MAX_POSITION - raw if valid else None),),
         () if valid else (CurtainField.CURRENT_POSITION,),
     )
@@ -41,7 +41,9 @@ def merge_report(state: EndpointState, updates: tuple[Update, ...]) -> CurtainSt
     return current
 
 
-def write_dps(command: Command, _zone: int, mode: WriteMode) -> dict[str, Value | str]:
+def write_dps(
+    command: Command, _endpoint: int, mode: WriteMode
+) -> dict[str, Value | str]:
     if mode == "disabled":
         raise BridgeError(ErrorCode.WRITE_DISABLED, "controller writes are disabled")
     _field, value = command.values[0]

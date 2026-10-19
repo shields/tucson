@@ -12,7 +12,7 @@ type WriteMode = Literal["disabled", "multi_dp"]
 
 
 @dataclass(frozen=True, slots=True)
-class ZoneReport:
+class EndpointReport:
     updates: tuple[Update, ...]
     invalid_fields: tuple[StateField, ...]
 
@@ -26,7 +26,7 @@ class Profile:
     requested_dps: tuple[str, ...]
     query_dps: frozenset[str]
     baseline_dps: frozenset[str]
-    decode_report: Callable[[Mapping[str, object], int], ZoneReport]
+    decode_report: Callable[[Mapping[str, object], int], EndpointReport]
     parse_command: Callable[[bytes, str], Command]
     prepare_command: Callable[[Command, EndpointState], Command]
     write_dps: Callable[[Command, int, WriteMode], dict[str, Value | str]]

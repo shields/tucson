@@ -19,9 +19,9 @@ from .base import (
     MAX_PAYLOAD_BYTES,
     MAX_REQUEST_ID,
     MIN_PRINTABLE,
+    EndpointReport,
     Profile,
     WriteMode,
-    ZoneReport,
 )
 
 MIN_LEVEL = 1
@@ -106,7 +106,7 @@ def _decode_field(field: Field, raw: object, zone: int) -> Value | None:
     return raw if type(raw) is int and 0 <= raw <= MAX_SAFE_INTEGER else None
 
 
-def decode_report(dps: Mapping[str, object], zone: int) -> ZoneReport:
+def decode_report(dps: Mapping[str, object], zone: int) -> EndpointReport:
     updates: list[Update] = []
     invalid: list[Field] = []
     for field, dp in zip(Field, DP_MAP[zone], strict=True):
@@ -115,7 +115,7 @@ def decode_report(dps: Mapping[str, object], zone: int) -> ZoneReport:
             updates.append((field, value))
             if value is None:
                 invalid.append(field)
-    return ZoneReport(tuple(updates), tuple(invalid))
+    return EndpointReport(tuple(updates), tuple(invalid))
 
 
 def _valid_value(field: Field, value: object) -> bool:

@@ -2,9 +2,9 @@
 
 Each physical controller has one dedicated owner thread. The device factory,
 connection attempts, reads, writes, heartbeats, and close operations run on that
-thread. Both configured zones share its socket and command queue. The asyncio
-coordinator reads immutable snapshots and exchanges requests/results through a
-bounded mailbox; it never calls a device method.
+thread. All of its endpoints, such as a bed’s two zones, share its socket and
+command queue. The asyncio coordinator reads immutable snapshots and exchanges
+requests/results through a bounded mailbox; it never calls a device method.
 
 ## State and freshness
 

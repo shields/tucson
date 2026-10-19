@@ -12,6 +12,8 @@ from tuya_mqtt.domain import (
     Completion,
     ConnectionState,
     ControllerSnapshot,
+    CurtainState,
+    EndpointState,
     ErrorCode,
     Outcome,
     Request,
@@ -30,6 +32,9 @@ BASELINE = ZoneState(
     preheat_remaining_seconds=0,
     fault_code=0,
 )
+
+
+CURTAIN = CurtainState(current_position=40, target_position=40, motion="stopped")
 
 
 class Scheduler(Clock):
@@ -66,10 +71,11 @@ class Worker:
     sessions: list[str | None] = field(default_factory=list)
     requests: list[Request] = field(default_factory=list)
     completed: deque[Completion] = field(default_factory=deque)
+    ready: tuple[EndpointState, ...] = (BASELINE, BASELINE)
     view: ControllerSnapshot = field(
         default_factory=lambda: ControllerSnapshot(
-            zones=(ZoneState(), ZoneState()),
-            previous_zones=(ZoneState(), ZoneState()),
+            endpoints=(ZoneState(), ZoneState()),
+            previous_endpoints=(ZoneState(), ZoneState()),
             invalid_fields=(frozenset(), frozenset()),
         )
     )
@@ -101,7 +107,9 @@ class Worker:
             connection=ConnectionState.ONLINE
             if available
             else ConnectionState.SYNCHRONIZING,
-            zones=(BASELINE, BASELINE) if available else (ZoneState(), ZoneState()),
+            endpoints=self.ready
+            if available
+            else tuple(type(state)() for state in self.ready),
             synchronized_at=self.clock() if available else None,
             last_full_status=self.clock() if available else None,
         )
@@ -116,7 +124,7 @@ class Worker:
 
     def submit(
         self,
-        zone: int,
+        endpoint: int,
         command: Command,
         session_id: str,
         *,
@@ -128,7 +136,7 @@ class Worker:
             )
         now = self.clock() if received_at is None else received_at
         request = Request(
-            zone,
+            endpoint,
             command,
             session_id,
             self.view.generation,
@@ -142,9 +150,11 @@ class Worker:
         return None
 
     def confirm(self, request: Request) -> None:
-        zones = list(self.view.zones)
-        zones[request.zone] = zones[request.zone].merge(request.command.values)
-        self.view = replace(self.view, zones=tuple(zones))
+        endpoints = list(self.view.endpoints)
+        endpoints[request.endpoint] = endpoints[request.endpoint].merge(
+            request.command.values
+        )
+        self.view = replace(self.view, endpoints=tuple(endpoints))
         self.completed.append(
             Completion(
                 request,
@@ -175,6 +185,17 @@ class Worker:
         self.join_threads.add(get_ident())
         if self.join_error is not None:
             raise self.join_error
+
+
+def curtain_worker(clock: Clock) -> Worker:
+    blank = (CurtainState(),)
+    return Worker(
+        clock,
+        ready=(CURTAIN,),
+        view=ControllerSnapshot(
+            endpoints=blank, previous_endpoints=blank, invalid_fields=(frozenset(),)
+        ),
+    )
 
 
 @dataclass

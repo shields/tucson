@@ -146,6 +146,12 @@ topic read tuya/bed/side_b/result
 topic write tuya/bed/side_b/set
 ```
 
+A controller whose profile has a single endpoint, such as a curtain, has no zone
+level: with a controller named `curtain`, Tucson reads `tuya/curtain/set` and
+`tuya/curtain/get` and writes `tuya/curtain`, `tuya/curtain/result`, and
+`tuya/curtain/availability`, and Hoboken reads those three topics and writes
+`tuya/curtain/set`. The ACL test below covers the bed topics only.
+
 Mosquitto's ACL file never denies a subscription: a client without read
 permission gets a successful SUBACK and silently receives nothing, and a denied
 QoS 0 publish is dropped silently. Tucson treats a denied QoS 1 publish as a

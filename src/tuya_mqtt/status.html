@@ -75,7 +75,7 @@
         margin: 0;
         overflow-wrap: anywhere;
       }
-      .zones {
+      .endpoints {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
         gap: 1rem;
@@ -130,6 +130,9 @@
       }
       function seconds(raw) {
         return raw === null ? "Unknown" : `${Math.max(0, raw).toFixed(1)} s`;
+      }
+      function prefix(zone) {
+        return zone === null ? "" : `${zone}: `;
       }
       function details(items) {
         const list = node("dl");
@@ -207,26 +210,27 @@
               [
                 "Pending request",
                 controller.pending
-                  ? `${controller.pending.zone}: ${controller.pending.request_id} (${seconds(controller.pending.deadline_seconds)} until deadline)`
+                  ? `${prefix(controller.pending.zone)}${controller.pending.request_id} (${seconds(controller.pending.deadline_seconds)} until deadline)`
                   : "None",
               ],
               [
                 "Last result",
                 controller.last_result
-                  ? `${controller.last_result.zone}: ${controller.last_result.outcome} (${controller.last_result.error_code ?? "No error"})`
+                  ? `${prefix(controller.last_result.zone)}${controller.last_result.outcome} (${controller.last_result.error_code ?? "No error"})`
                   : "None",
               ],
             ]),
           );
-          const zones = node("div", undefined, "zones");
-          for (const zone of controller.zones) {
+          const endpoints = node("div", undefined, "endpoints");
+          for (const endpoint of controller.endpoints) {
             const panel = node("div");
-            panel.append(node("h3", zone.name), table(zone.reported));
-            if (zone.invalid_fields.length)
+            if (endpoint.zone !== null) panel.append(node("h3", endpoint.zone));
+            panel.append(table(endpoint.reported));
+            if (endpoint.invalid_fields.length)
               panel.append(
                 node(
                   "p",
-                  `Compatibility errors: ${zone.invalid_fields.join(", ")}`,
+                  `Compatibility errors: ${endpoint.invalid_fields.join(", ")}`,
                   "bad",
                 ),
               );
@@ -236,12 +240,12 @@
                 "summary",
                 `Previous snapshot · full status age ${seconds(controller.previous_full_status_age_seconds)}`,
               ),
-              table(zone.previous),
+              table(endpoint.previous),
             );
             panel.append(previous);
-            zones.append(panel);
+            endpoints.append(panel);
           }
-          section.append(zones);
+          section.append(endpoints);
           nodes.push(section);
         }
         content.replaceChildren(...nodes);

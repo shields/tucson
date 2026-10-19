@@ -55,7 +55,7 @@ class Worker(Protocol):
     def refresh(self) -> None: ...
     def submit(
         self,
-        zone: int,
+        endpoint: int,
         command: Command,
         session_id: str,
         *,
@@ -94,7 +94,7 @@ def online(view: ControllerSnapshot, session_id: str | None, now: float) -> bool
         session_id is not None
         and view.session_id == session_id
         and view.online
-        and all(zone.usable for zone in view.zones)
+        and all(state.usable for state in view.endpoints)
         and fresh_at is not None
         and now - fresh_at < STALE_TIMEOUT
     )
@@ -143,13 +143,13 @@ class Bridge:
         self._monitor_task: asyncio.Task[None] | None = None
         self._ledgers: dict[tuple[int, int], RequestLedger] = {}
         self._routes = {
-            f"{self.config.mqtt.topic_prefix}/{controller.name}/{name}/{action}": (
+            f"{self.endpoint_topic(index, endpoint)}/{action}": (
                 index,
-                zone,
+                endpoint,
                 action,
             )
-            for index, controller in enumerate(self.config.controllers)
-            for zone, name in enumerate(controller.zones)
+            for index, profile in enumerate(self.profiles)
+            for endpoint in range(profile.endpoint_count)
             for action in ("set", "get")
         }
 
@@ -159,9 +159,11 @@ class Bridge:
         for worker in self.workers:
             worker.stop()
 
-    def zone_topic(self, index: int, zone: int) -> str:
+    def endpoint_topic(self, index: int, endpoint: int) -> str:
         config = self.config.controllers[index]
-        return f"{self.config.mqtt.topic_prefix}/{config.name}/{config.zones[zone]}"
+        zone = config.zone_name(endpoint)
+        base = f"{self.config.mqtt.topic_prefix}/{config.name}"
+        return base if zone is None else f"{base}/{zone}"
 
     @property
     def now(self) -> float:
@@ -186,18 +188,18 @@ class Bridge:
         )
 
     def _record(
-        self, index: int, zone: int, result: CommandResult, elapsed: float
+        self, index: int, endpoint: int, result: CommandResult, elapsed: float
     ) -> None:
-        key = (index, zone, result.outcome, result.error_code)
+        key = (index, endpoint, result.outcome, result.error_code)
         self.outcomes[key] = self.outcomes.get(key, 0) + 1
-        key_zone = (index, zone)
-        count, total = self.latency_totals.get(key_zone, (0, 0.0))
-        self.latency_totals[key_zone] = count + 1, total + elapsed
+        key_endpoint = (index, endpoint)
+        count, total = self.latency_totals.get(key_endpoint, (0, 0.0))
+        self.latency_totals[key_endpoint] = count + 1, total + elapsed
         log = self._log.info if result.outcome is Outcome.CONFIRMED else self._log.error
         log(
             "command_result",
             controller=self.config.controllers[index].name,
-            zone=self.config.controllers[index].zones[zone],
+            zone=self.config.controllers[index].zone_name(endpoint),
             operation="command",
             request_id=result.request_id,
             outcome=result.outcome.value,
@@ -210,17 +212,17 @@ class Bridge:
         for completion in results:
             self._record(
                 index,
-                completion.request.zone,
+                completion.request.endpoint,
                 completion.result,
                 completion.completed_at - completion.request.received_at,
             )
         return results
 
     async def _result(
-        self, client: MQTTConnection, index: int, zone: int, result: CommandResult
+        self, client: MQTTConnection, index: int, endpoint: int, result: CommandResult
     ) -> None:
         await client.publish(
-            f"{self.zone_topic(index, zone)}/result",
+            f"{self.endpoint_topic(index, endpoint)}/result",
             encode(result.payload()),
             qos=0,
             retain=False,
@@ -254,7 +256,7 @@ class Bridge:
         route = self._routes.get(message.topic)
         if route is None:
             return
-        index, zone, action = route
+        index, endpoint, action = route
         request_id, fingerprint = self._identity(message.payload)
         error = (
             ErrorCode.RETAINED_COMMAND
@@ -265,20 +267,22 @@ class Bridge:
         )
         if error is not None:
             result = CommandResult(request_id, Outcome.REJECTED, error)
-            self._record(index, zone, result, self._clock() - received_at)
-            await self._result(client, index, zone, result)
+            self._record(index, endpoint, result, self._clock() - received_at)
+            await self._result(client, index, endpoint, result)
             return
         if action == "get":
             self.workers[index].refresh()
             return
-        ledger = self._ledgers[index, zone]
+        ledger = self._ledgers[index, endpoint]
         decision = ledger.begin(request_id, fingerprint)
         if decision.admission is Admission.PENDING:
             return
         if decision.result is not None:
             if decision.admission is Admission.REJECTED:
-                self._record(index, zone, decision.result, self._clock() - received_at)
-            await self._result(client, index, zone, decision.result)
+                self._record(
+                    index, endpoint, decision.result, self._clock() - received_at
+                )
+            await self._result(client, index, endpoint, decision.result)
             return
         try:
             command = self.profiles[index].parse_command(message.payload, request_id)
@@ -299,13 +303,16 @@ class Bridge:
                 result = CommandResult(request_id, Outcome.REJECTED, ErrorCode.EXPIRED)
             else:
                 result = self.workers[index].submit(
-                    zone, command, cast("str", self.session_id), received_at=received_at
+                    endpoint,
+                    command,
+                    cast("str", self.session_id),
+                    received_at=received_at,
                 )
             if result is None:
                 return
         ledger.finish(result)
-        self._record(index, zone, result, self._clock() - received_at)
-        await self._result(client, index, zone, result)
+        self._record(index, endpoint, result, self._clock() - received_at)
+        await self._result(client, index, endpoint, result)
 
     async def _consume(self, client: MQTTConnection) -> None:
         async for message in client.messages:
@@ -334,19 +341,22 @@ class Bridge:
                 # behind every result published below.
                 results = self._drain(index)
                 view = worker.snapshot
-                for zone in range(self.profiles[index].endpoint_count):
+                for endpoint in range(self.profiles[index].endpoint_count):
                     state = (
-                        view.zones[zone]
+                        view.endpoints[endpoint]
                         if view.session_id == self.session_id
                         else self.profiles[index].state_factory()
                     )
                     payload = encode(state.payload(cast("str", self.session_id)))
                     version = payload, view.refresh_revision, view.generation
-                    if snapshots.get((index, zone)) != version:
+                    if snapshots.get((index, endpoint)) != version:
                         await client.publish(
-                            self.zone_topic(index, zone), payload, qos=1, retain=True
+                            self.endpoint_topic(index, endpoint),
+                            payload,
+                            qos=1,
+                            retain=True,
                         )
-                        snapshots[index, zone] = version
+                        snapshots[index, endpoint] = version
                 available = online(view, self.session_id, self._clock())
                 if availability.get(index) != available:
                     await client.publish(
@@ -358,13 +368,16 @@ class Bridge:
                     availability[index] = available
                 for completion in results:
                     if completion.request.session_id == self.session_id:
-                        self._ledgers[index, completion.request.zone].finish(
+                        self._ledgers[index, completion.request.endpoint].finish(
                             completion.result
                         )
                 for completion in results:
                     if completion.request.session_id == self.session_id:
                         await self._result(
-                            client, index, completion.request.zone, completion.result
+                            client,
+                            index,
+                            completion.request.endpoint,
+                            completion.result,
                         )
             await self._sleep(MONITOR_INTERVAL)
 
@@ -400,9 +413,9 @@ class Bridge:
                         for topic in self._routes:
                             await client.subscribe(topic)
                         self._ledgers = {
-                            (index, zone): RequestLedger(clock=self._clock)
+                            (index, endpoint): RequestLedger(clock=self._clock)
                             for index in range(len(self.workers))
-                            for zone in range(self.profiles[index].endpoint_count)
+                            for endpoint in range(self.profiles[index].endpoint_count)
                         }
                         for worker in self.workers:
                             worker.set_session(self.session_id)

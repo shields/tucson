@@ -85,6 +85,9 @@ def test_secret_files_and_no_mqtt_password(
         ("controller", "zones", ["left", "left"]),
         ("controller", "zones", ["availability", "right"]),
         ("controller", "zones", ["left"]),
+        ("controller", "zones", ["left", "middle", "right"]),
+        ("controller", "zones", []),
+        ("controller", "zones", None),
         ("controller", "local_key", {"file": "/nonexistent/secret"}),
     ],
 )
@@ -112,6 +115,50 @@ def test_invalid_config_is_sanitized(
     assert "private-value" not in str(caught.value)
     assert "/nonexistent/secret" not in str(caught.value)
     assert "test-key" not in str(caught.value)
+
+
+def test_a_multi_endpoint_profile_requires_zones(
+    config_data: dict[str, Any], config_path: Path, secret_env: dict[str, str]
+) -> None:
+    del config_data["controllers"][0]["zones"]
+    config_path.write_text(json.dumps(config_data))
+    with pytest.raises(BridgeError, match="invalid configuration"):
+        load_config(config_path, env=secret_env)
+
+
+def test_a_single_endpoint_profile_has_no_zones(
+    config_data: dict[str, Any], config_path: Path, secret_env: dict[str, str]
+) -> None:
+    controller = config_data["controllers"][0]
+    del controller["zones"]
+    controller["profile"] = "zemismart-bcd300fb"
+    config_path.write_text(json.dumps(config_data))
+    result = load_config(config_path, env=secret_env).config.controllers[0]
+    assert result.zones is None
+    assert result.zone_name(0) is None
+
+
+@pytest.mark.parametrize("zones", [["curtain"], [], None])
+def test_a_single_endpoint_profile_rejects_a_zones_key(
+    zones: list[str] | None,
+    config_data: dict[str, Any],
+    config_path: Path,
+    secret_env: dict[str, str],
+) -> None:
+    config_data["controllers"][0] |= {"profile": "zemismart-bcd300fb", "zones": zones}
+    config_path.write_text(json.dumps(config_data))
+    with pytest.raises(BridgeError, match="invalid configuration"):
+        load_config(config_path, env=secret_env)
+
+
+def test_zone_names_follow_endpoint_order(
+    config_path: Path, secret_env: dict[str, str]
+) -> None:
+    controller = load_config(config_path, env=secret_env).config.controllers[0]
+    assert [controller.zone_name(endpoint) for endpoint in (0, 1)] == [
+        "side_a",
+        "side_b",
+    ]
 
 
 @pytest.mark.parametrize("field", ["name", "device_id", "ip"])

@@ -51,7 +51,7 @@ def motor(
 def test_real_adapter_confirms_ack_and_observes_completion(
     simulator: Simulator, motor: ControllerWorker
 ) -> None:
-    assert motor.snapshot.zones == (CurtainState(54, 54),)
+    assert motor.snapshot.endpoints == (CurtainState(54, 54),)
     started = monotonic()
     assert (
         motor.submit(0, PROFILE.parse_command(b'{"target_position":80}', "r"), "s")
@@ -60,18 +60,18 @@ def test_real_adapter_confirms_ack_and_observes_completion(
     wait_worker(lambda: motor.snapshot.last_completion is not None, motor)
     assert motor.drain_results()[0].result.outcome is Outcome.CONFIRMED
     assert monotonic() - started < 5
-    assert motor.snapshot.zones == (CurtainState(54, 80),)
+    assert motor.snapshot.endpoints == (CurtainState(54, 80),)
     motor.refresh()
     wait_worker(lambda: motor.snapshot.refresh_revision >= 2, motor)
-    assert motor.snapshot.zones == (CurtainState(54, 80),)
+    assert motor.snapshot.endpoints == (CurtainState(54, 80),)
     motor.set_session("new")
     wait_worker(
         lambda: motor.snapshot.session_id == "new" and motor.snapshot.online, motor
     )
-    assert motor.snapshot.zones == (CurtainState(54, 54),)
+    assert motor.snapshot.endpoints == (CurtainState(54, 54),)
     simulator.mock.dps["101"] = 20
     assert simulator.mock.push({"101": 20})
-    wait_worker(lambda: motor.snapshot.zones == (CurtainState(80, 80),), motor)
+    wait_worker(lambda: motor.snapshot.endpoints == (CurtainState(80, 80),), motor)
     assert simulator.writes == [{"101": 20}]
 
 
@@ -85,7 +85,7 @@ def test_echoed_position_does_not_replace_missing_control_ack(
         is None
     )
     assert simulator.written.wait(2)
-    wait_worker(lambda: motor.snapshot.zones == (CurtainState(80, 80),), motor)
+    wait_worker(lambda: motor.snapshot.endpoints == (CurtainState(80, 80),), motor)
     assert motor.snapshot.last_completion is None
     motor.stop()
     motor.join()

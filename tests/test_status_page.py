@@ -115,9 +115,22 @@ async def test_status_page_renders_profile_fields(
         bedding
         | {
             "name": "Living room",
-            "zones": [
+            "pending": {
+                "request_id": "pending-request",
+                "zone": None,
+                "requested": {"target_position": 80},
+                "age_seconds": 0,
+                "deadline_seconds": 2,
+            },
+            "last_result": {
+                "request_id": "finished-request",
+                "outcome": "confirmed",
+                "zone": None,
+                "age_seconds": 1,
+            },
+            "endpoints": [
                 {
-                    "name": "Curtain",
+                    "zone": None,
                     "reported": {
                         "current_position": 40,
                         "target_position": 80,
@@ -163,16 +176,18 @@ runInNewContext(script, {
     },
     EventSource: class { constructor() { events = this; } },
 });
-const tables = [];
+const tables = [], headings = [], details = [];
 function collect(element) {
     if (element.tag === "table") {
         tables.push(element.children.map(row => row.children.map(cell => cell.text)));
     }
+    if (element.tag === "h3") headings.push(element.text);
+    if (element.tag === "dd") details.push(element.text);
     for (const child of element.children) collect(child);
 }
 events.onmessage({ data: JSON.stringify(snapshot) });
 collect(content);
-process.stdout.write(JSON.stringify(tables));
+process.stdout.write(JSON.stringify({ tables, headings, details }));
 """,
         ],
         input=json.dumps({"script": script[1], "snapshot": data}),
@@ -181,7 +196,11 @@ process.stdout.write(JSON.stringify(tables));
         check=True,
         timeout=5,
     )
-    tables = json.loads(result.stdout)
+    rendered = json.loads(result.stdout)
+    tables = rendered["tables"]
+    assert rendered["headings"] == ["side_a", "side_b"]
+    assert "pending-request (2.0\u202fs until deadline)" in rendered["details"]
+    assert "confirmed (No error)" in rendered["details"]
     assert len(tables) == 6
     assert tables[0] == [
         ["Power", "Off"],
@@ -219,7 +238,7 @@ async def test_diagnostics_keep_unknown_previous_pending_and_results_separate(
         worker.view,
         active=request,
         last_completion=Completion(request, result, 0),
-        previous_zones=worker.view.zones,
+        previous_endpoints=worker.view.endpoints,
         previous_full_status_at=0,
         invalid_fields=(
             frozenset({field for field, _value in command.values}),
@@ -233,7 +252,7 @@ async def test_diagnostics_keep_unknown_previous_pending_and_results_separate(
     assert controller["pending"]["requested"] == {"power": True}
     assert controller["pending"]["request_id"] == "[redacted]"
     assert controller["last_result"]["outcome"] == "unconfirmed"
-    assert controller["zones"][0]["reported"]["power"] is False
+    assert controller["endpoints"][0]["reported"]["power"] is False
     assert controller["previous_full_status_age_seconds"] == 1
 
 

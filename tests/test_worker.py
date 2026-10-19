@@ -68,8 +68,8 @@ def test_one_owner_thread_for_factory_and_both_zones(
         assert [item.result.request_id for item in completed] == ["a", "b"]
         assert all(item.result.outcome is Outcome.CONFIRMED for item in completed)
         assert device.writes == [{"14": True}, {"25": True}]
-        assert worker.snapshot.zones[0].power is True
-        assert worker.snapshot.zones[1].preheat is True
+        assert worker.snapshot.endpoints[0].power is True
+        assert worker.snapshot.endpoints[1].preheat is True
         revision = worker.snapshot.refresh_revision
         worker.refresh()
         eventually(lambda: worker.snapshot.refresh_revision > revision, worker)

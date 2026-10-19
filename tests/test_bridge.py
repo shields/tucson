@@ -69,7 +69,7 @@ def test_identity_and_freshness_requirements(resolved: ResolvedConfig) -> None:
     view = ControllerSnapshot(
         connection=ConnectionState.ONLINE,
         session_id="s",
-        zones=(BASELINE, BASELINE),
+        endpoints=(BASELINE, BASELINE),
         synchronized_at=0,
     )
     assert online(view, "s", 89)
@@ -77,7 +77,7 @@ def test_identity_and_freshness_requirements(resolved: ResolvedConfig) -> None:
     assert not online(view, None, 0)
     assert not online(view, "other", 0)
     assert not online(replace(view, connection=ConnectionState.DISCONNECTED), "s", 0)
-    assert not online(replace(view, zones=(ZoneState(), BASELINE)), "s", 0)
+    assert not online(replace(view, endpoints=(ZoneState(), BASELINE)), "s", 0)
     assert not online(replace(view, synchronized_at=None), "s", 0)
 
 
@@ -107,7 +107,7 @@ async def test_lifecycle_dedup_refresh_heartbeat_and_shutdown(
         await eventually(lambda: len(scheduler.delays) >= 5)
         assert len(publications(mqtt, "tuya/bed/side_a")) == 1
         worker.view = replace(
-            worker.view, zones=(replace(BASELINE, heat_level=7), BASELINE)
+            worker.view, endpoints=(replace(BASELINE, heat_level=7), BASELINE)
         )
         scheduler.advance(0.05)
         await eventually(lambda: len(publications(mqtt, "tuya/bed/side_a")) == 2)
@@ -174,7 +174,7 @@ async def test_pending_duplicate_conflict_terminal_replay_and_zone_scope(
         assert bridge.outcomes[0, 0, Outcome.CONFIRMED, None] == 1
         mqtt.incoming.put_nowait(Message("tuya/bed/side_b/set", body, retained=False))
         await eventually(lambda: len(worker.requests) == 2)
-        assert worker.requests[-1].zone == 1
+        assert worker.requests[-1].endpoint == 1
     finally:
         await stop(bridge, task)
 

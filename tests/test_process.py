@@ -138,7 +138,7 @@ async def test_process_commands_pushes_refresh_retained_state_and_shutdown(
             assert diagnostic["readiness"] == (200, {"ready": True, "reasons": []})
             assert diagnostic["data"]["session_id"] == session_id
             assert (
-                diagnostic["data"]["controllers"][0]["zones"][0]["reported"][
+                diagnostic["data"]["controllers"][0]["endpoints"][0]["reported"][
                     "heat_level"
                 ]
                 == 3
@@ -178,8 +178,8 @@ async def test_process_commands_pushes_refresh_retained_state_and_shutdown(
                 in fault_page["metrics"]
             )
             assert [
-                zone["reported"]["fault_code"]
-                for zone in fault_page["data"]["controllers"][0]["zones"]
+                endpoint["reported"]["fault_code"]
+                for endpoint in fault_page["data"]["controllers"][0]["endpoints"]
             ] == [8, 8]
             before = observed.count("tuya/bed/side_b")
             await subscriber.publish("tuya/bed/side_b/get", b"", qos=0)

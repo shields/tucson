@@ -137,7 +137,7 @@ class CommandResult:
 
 @dataclass(frozen=True, slots=True)
 class Request:
-    zone: int
+    endpoint: int
     command: Command
     session_id: str
     generation: int
@@ -158,8 +158,8 @@ class ControllerSnapshot:
     connection: ConnectionState = ConnectionState.DISCONNECTED
     generation: int = 0
     session_id: str | None = None
-    zones: tuple[EndpointState, ...] = ()
-    previous_zones: tuple[EndpointState, ...] = ()
+    endpoints: tuple[EndpointState, ...] = ()
+    previous_endpoints: tuple[EndpointState, ...] = ()
     previous_full_status_at: float | None = None
     invalid_fields: tuple[frozenset[StateField], ...] = ()
     synchronized_at: float | None = None

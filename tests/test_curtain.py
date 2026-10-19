@@ -19,9 +19,8 @@ def curtain_config(
     monkeypatch: pytest.MonkeyPatch, controller_config: ControllerConfig
 ) -> ControllerConfig:
     monkeypatch.setitem(PROFILES, "test-curtain", PROFILE)
-    data = controller_config.model_dump() | {
+    data = controller_config.model_dump(exclude={"zones"}) | {
         "profile": "test-curtain",
-        "zones": ("curtain",),
         "write_mode": "multi_dp",
     }
     return ControllerConfig.model_validate(data)
@@ -86,11 +85,16 @@ def test_production_rejects_unverified_profiles(
         )
 
 
-def test_profile_endpoint_validation(curtain_config: ControllerConfig) -> None:
-    with pytest.raises(ValueError, match="endpoint count"):
+def test_profile_zone_validation(
+    curtain_config: ControllerConfig, controller_config: ControllerConfig
+) -> None:
+    assert curtain_config.zones is None
+    with pytest.raises(ValueError, match="zones apply only"):
         ControllerConfig.model_validate(
-            curtain_config.model_dump() | {"zones": ("a", "b")}
+            curtain_config.model_dump() | {"zones": ("curtain",)}
         )
+    with pytest.raises(ValueError, match="zone count"):
+        ControllerConfig.model_validate(controller_config.model_dump(exclude={"zones"}))
 
 
 def test_curtain_report_and_state() -> None:
@@ -128,7 +132,7 @@ def test_controller_confirms_target_before_arrival(
     )
     harness = Harness(core, mailbox, device, clock, log)
     harness.online()
-    assert len(core.view.zones) == 1
+    assert len(core.view.endpoints) == 1
     assert (
         mailbox.admit(
             harness.request(parse_command(b'{"target_position":80}')),
@@ -138,13 +142,13 @@ def test_controller_confirms_target_before_arrival(
     )
     harness.tick(6)
     assert mailbox.drain_results()[0].result.outcome is Outcome.CONFIRMED
-    assert core.view.zones[0].current_position == 0
+    assert core.view.endpoints[0].current_position == 0
     harness.push({"201": 70, "203": "opening"})
     assert device.writes == [{"202": 20}]
     mailbox.set_session("new-session")
     device.state = {"201": 70}
     harness.tick(3)
     assert not core.view.online
-    assert core.view.previous_zones[0].current_position == 30
-    assert core.view.zones[0].target_position is None
+    assert core.view.previous_endpoints[0].current_position == 30
+    assert core.view.endpoints[0].target_position is None
     core.stop()

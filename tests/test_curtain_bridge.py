@@ -26,11 +26,12 @@ async def test_curtain_through_tcp_and_mqtt(
     await broker.ready()
     simulator.mock.dps.clear()
     simulator.mock.dps.update(BASELINE)
-    config_data["controllers"][0] |= {"profile": "test-curtain", "zones": ["curtain"]}
+    del config_data["controllers"][0]["zones"]
+    config_data["controllers"][0]["profile"] = "test-curtain"
     daemon = configure_process(config_path, config_data, secret_env, broker, simulator)
     daemon.module = "tests.curtain_daemon"
     observed = Observed()
-    topic = "tuya/bed/curtain"
+    topic = "tuya/bed"
     async with aiomqtt.Client(
         "127.0.0.1", broker.port, protocol=aiomqtt.ProtocolVersion.V5
     ) as client:
@@ -66,7 +67,7 @@ async def test_curtain_through_tcp_and_mqtt(
             status = await http_snapshot(config_data)
             assert status["readiness"][0] == 200
             assert (
-                status["data"]["controllers"][0]["zones"][0]["reported"][
+                status["data"]["controllers"][0]["endpoints"][0]["reported"][
                     "current_position"
                 ]
                 == 40

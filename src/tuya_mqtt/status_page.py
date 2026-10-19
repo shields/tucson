@@ -121,7 +121,7 @@ class StatusServer:
                     if active is None
                     else {
                         "request_id": active.command.request_id,
-                        "zone": config.zones[active.zone],
+                        "zone": config.zone_name(active.endpoint),
                         "requested": dict(active.command.values),
                         "age_seconds": age(now, active.received_at),
                         "deadline_seconds": max(0, active.deadline - now),
@@ -130,27 +130,27 @@ class StatusServer:
                     if completion is None
                     else {
                         **completion.result.payload(),
-                        "zone": config.zones[completion.request.zone],
+                        "zone": config.zone_name(completion.request.endpoint),
                         "age_seconds": age(now, completion.completed_at),
                     },
-                    "zones": [
+                    "endpoints": [
                         {
-                            "name": config.zones[zone],
+                            "zone": config.zone_name(endpoint),
                             "reported": {
                                 field.value: getattr(state, field.value)
                                 for field in bridge.profiles[index].fields
                             },
                             "previous": {
                                 field.value: getattr(
-                                    view.previous_zones[zone], field.value
+                                    view.previous_endpoints[endpoint], field.value
                                 )
                                 for field in bridge.profiles[index].fields
                             },
                             "invalid_fields": sorted(
-                                field.value for field in view.invalid_fields[zone]
+                                field.value for field in view.invalid_fields[endpoint]
                             ),
                         }
-                        for zone, state in enumerate(view.zones)
+                        for endpoint, state in enumerate(view.endpoints)
                     ],
                 }
             )
