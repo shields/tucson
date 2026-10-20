@@ -167,8 +167,8 @@ routes are read-only:
 | `/healthz` | HTTP 200 while required coordination loops make progress; otherwise HTTP 503. Dependency outages alone do not make the process unhealthy.                                           |
 | `/readyz`  | HTTP 200 when MQTT and all configured controller baselines are usable; otherwise HTTP 503 with reasons. A healthy controller can still serve commands while another is unavailable. |
 | `/metrics` | Prometheus connectivity, freshness, reconnect, failure, command outcome/latency, queue-depth, progress, and fault-bitmap measurements.                                              |
-| `/`        | Live controller and endpoint state, previous snapshots, freshness ages, pending requests, errors, and software versions.                                                            |
-| `/events`  | JSON status snapshots over Server-Sent Events.                                                                                                                                      |
+| `/`        | Live controller and endpoint state, freshness ages, pending requests, errors, and software versions.                                                                                |
+| `/events`  | JSON status snapshots over Server-Sent Events, including previous snapshots for diagnostics.                                                                                        |
 
 The status stream admits at most 16 clients. Each keeps only its latest queued
 snapshot; superseded diagnostics are replaced. Writes, including stream

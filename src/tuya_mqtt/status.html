@@ -234,15 +234,6 @@
                   "bad",
                 ),
               );
-            const previous = node("details");
-            previous.append(
-              node(
-                "summary",
-                `Previous snapshot · full status age ${seconds(controller.previous_full_status_age_seconds)}`,
-              ),
-              table(endpoint.previous),
-            );
-            panel.append(previous);
             endpoints.append(panel);
           }
           section.append(endpoints);

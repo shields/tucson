@@ -201,7 +201,7 @@ process.stdout.write(JSON.stringify({ tables, headings, details }));
     assert rendered["headings"] == ["side_a", "side_b"]
     assert "pending-request (2.0\u202fs until deadline)" in rendered["details"]
     assert "confirmed (No error)" in rendered["details"]
-    assert len(tables) == 6
+    assert len(tables) == 3
     assert tables[0] == [
         ["Power", "Off"],
         ["Heat level", "4"],
@@ -211,16 +211,11 @@ process.stdout.write(JSON.stringify({ tables, headings, details }));
         ["Reported preheat time remaining", "0\u202fs"],
         ["Reported fault bits", "0"],
     ]
-    assert all(value == "Unknown" for _label, value in tables[1])
-    assert tables[4] == [
+    assert tables[1] == tables[0]
+    assert tables[2] == [
         ["Current position", "40"],
         ["Target position", "80"],
         ["Motion", "opening"],
-    ]
-    assert tables[5] == [
-        ["Current position", "0"],
-        ["Target position", "Unknown"],
-        ["Motion", "Unknown"],
     ]
     assert "undefined" not in result.stdout
 
