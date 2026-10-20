@@ -201,6 +201,7 @@ process.stdout.write(JSON.stringify({ tables, headings, details }));
     assert rendered["headings"] == ["side_a", "side_b"]
     assert "pending-request (2.0\u202fs until deadline)" in rendered["details"]
     assert "confirmed (No error)" in rendered["details"]
+    assert "application: test\nrevision: [redacted]" in rendered["details"]
     assert len(tables) == 3
     assert tables[0] == [
         ["Power", "Off"],
