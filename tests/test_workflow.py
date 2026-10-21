@@ -1,3 +1,17 @@
+# Copyright © 2026 Michael Shields
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
 import shutil
 import subprocess
@@ -104,9 +118,7 @@ def test_renovate_covers_runtime_pins_and_uses_platform_automerge() -> None:
                 executable,
                 "-e",
                 """
-import prettier from 'prettier';
-const raw = await Bun.file('.github/renovate.json5').text();
-const config = JSON.parse(await prettier.format(raw, {parser: 'json-stringify'}));
+const config = Bun.JSON5.parse(await Bun.file('.github/renovate.json5').text());
 const matches = {};
 for (const manager of config.customManagers) {
     const source = await Bun.file(manager.depNameTemplate === 'python'

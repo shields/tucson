@@ -20,7 +20,6 @@ target-version = "py315"
 select = ["ALL"]
 
 ignore = [
-  "CPY001",  # Repository instructions prohibit adding copyright information.
   "ANN401",  # typing.Any
   "C90",  # Cyclomatic complexity
   "D",  # pydocstyle (disable docstring rules)
