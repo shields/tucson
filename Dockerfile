@@ -42,7 +42,7 @@ for cache in Path(get_path("purelib")).glob("*.dist-info/uv_cache.json"):
     cache.unlink()
 PY
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:b7e81cb1af38d9345680e68bcf564d388f96304e25222030fc8c051faf8565b3
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
 COPY --from=build /opt/python /opt/python
 COPY --from=build /opt/app /opt/app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
