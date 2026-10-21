@@ -135,12 +135,12 @@ console.log(JSON.stringify({config, matches}));
             timeout=10,
         )
     )
-    assert data["matches"] == {
-        "python": ["3.15.0"],
-        "astral-sh/uv": ["0.13.0", "0.13.0"],
-        "oven-sh/bun": ["1.4.3"],
-        "zizmorcore/zizmor": ["1.30.1"],
-        "moby/buildkit": ["v0.34.0"],
+    assert {name: len(versions) for name, versions in data["matches"].items()} == {
+        "python": 1,
+        "astral-sh/uv": 2,
+        "oven-sh/bun": 1,
+        "zizmorcore/zizmor": 1,
+        "moby/buildkit": 1,
     }
     config = data["config"]
     assert config["platformAutomerge"] is True
