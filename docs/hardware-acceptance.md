@@ -18,11 +18,13 @@ limitations under the License.
 
 Status: in progress. Read-only observations and physical-control tests from
 2026-10-12, power, level, timer, and preheat writes through the adapter on
-2026-10-13, and timer expiry, the presence window, preheat on side B, and every
-level on both sides through the adapter on 2026-10-18 are recorded below. The
-bridge daemon ran a command sequence against the controller on 2026-10-13,
-recorded under [Bridge daemon smoke test](#bridge-daemon-smoke-test), but
-production compatibility remains unproven until this record is complete.
+2026-10-13, timer expiry, the presence window, preheat on side B, and every
+level on both sides through the adapter on 2026-10-18, and auto-off timer writes
+and Home app and Siri commands through the deployed bridges on 2026-10-20 are
+recorded below. The bridge daemon ran a command sequence against the controller
+on 2026-10-13, recorded under
+[Bridge daemon smoke test](#bridge-daemon-smoke-test), but production
+compatibility remains unproven until this record is complete.
 
 ## Available evidence
 
@@ -92,7 +94,7 @@ more than the standard instruction set that TinyTuya’s wizard saves:
 | 20, 21   | Heat level, A and B   | `level_1` (the idle setting), `level_3`, `level_4` (after the one-hour presence rule), `level_5`, and `level_10` (during preheat); levels 3 and 5 set on the controller reported `level_3` and `level_5`.                           |
 | 24, 25   | Preheat, A and B      | Boolean.                                                                                                                                                                                                                            |
 | 26, 27   | Auto-off, A and B     | `10h` by default. Writes verified all 21 values on both sides; side A spells 7.5 hours `7h30` and side B `7h30m`.                                                                                                                   |
-| 28, 29   | Remaining seconds     | Resets to the selected duration when the timer changes, then falls by 60 once a minute while the side is on (36,000, 35,940, …).                                                                                                    |
+| 28, 29   | Remaining seconds     | Resets to the selected duration whenever the timer is written, even with the same value, then falls by 60 once a minute while the side is on (36,000, 35,940, …).                                                                   |
 | 102, 103 | Preheat remaining     | 1,800 when preheat starts and 0 when it ends.                                                                                                                                                                                       |
 | 1, 4, 8  | Combined controls     | DP 1 was true while either side was on, DP 8 while side B preheated, and DP 4 repeated the level last set on either side. Not used.                                                                                                 |
 | 13       | Fault bitmap          | 13 bits with no known meanings; 0 throughout. Reported as `fault_code`.                                                                                                                                                             |
@@ -179,7 +181,9 @@ Writes were acknowledged by unsolicited reports within about 0.3 seconds.
   timer. Turning a side off resets its timer setting to `10h`.
 - **The remaining time is derived from the setting.** Writing 15 seconds was
   echoed, but the next once-a-minute tick restored the setting minus 60 seconds
-  and the side stayed on, so arbitrary durations are not possible.
+  and the side stayed on, so arbitrary durations are not possible. Rewriting the
+  current setting restarts the countdown (see
+  [Timer checks of 2026-10-20](#timer-checks-of-2026-10-20)).
 - **A level write turns a side on,** even in the same packet as power off. Power
   off alone turns it off, and the selected level survives.
 - **Preheat** behaves as it does from the controller. Starting it on side A,
@@ -293,6 +297,71 @@ write was reported back within a second, and power off kept the last level
 written. Each pass ended by writing the stored levels back and turning both
 sides off, leaving level 6 on side A and level 4 on side B.
 
+### Timer checks of 2026-10-20
+
+From 22:57 to 23:09 local time (05:57 to 06:09 UTC on October 21) a script
+checked the auto-off behavior that Hoboken's six-hour power-on relies on. It ran
+from the published image `ghcr.io/shields/tucson:20261018.4` (Python 3.15.0,
+TinyTuya 1.20.0) with the source of revision `c613250` mounted over the
+installed package. As the worker does, without the MQTT layer, the Sunbeam
+profile parsed, prepared, and encoded each command for `multi_dp`, the adapter's
+`write` method sent it, and `Command.matches` checked it against the decoded
+reports. Both sides were off at level 4 with the `10h` setting. Each step ran on
+side A and then side B a few seconds apart, and both sides behaved the same.
+
+- `{"power": true}` from off wrote only the power DP and was confirmed. The
+  setting stayed `10h`, and the remaining time started at 36,000 seconds and
+  read 35,880 two minutes later. DP 104 became `45_Minutes_Before`.
+- A LAN power-off left the setting at `10h` with 36,000 seconds remaining.
+- `{"power": true, "auto_off_seconds": 21600}` from off wrote the two-DP packet
+  `{14: true, 26: "6h"}` (`{15: true, 27: "6h"}` on side B). Both values were
+  applied and the command was confirmed with 21,600 seconds remaining, 21,420
+  three minutes later.
+- With that countdown running, a redundant `{"power": true}` left the remaining
+  time at 21,420, and it kept falling.
+- `{"power": true, "heat_level": 2}`, which Hoboken sends for a speed change,
+  changed the level of a side that was on and left the remaining time at 21,300,
+  and it kept falling.
+- Rewriting the same `6h` setting restarted the countdown, from 21,180 to 21,600
+  seconds.
+- Power off returned the setting to `10h` with 36,000 seconds remaining.
+
+A timer write restarts the countdown even when the value is unchanged, while
+power and level writes to a side that is on leave it alone. DP 104 stayed
+`45_Minutes_Before` after side A turned off and returned to `User_Confirmation`
+once side B did too. At the end the stored level 4 was written back to each side
+and both were turned off, as at the start. The controller and the test host had
+Internet access.
+
+### HomeKit commands of 2026-10-20
+
+From 23:37 to 23:41 local time (06:37 to 06:41 UTC on October 21) the Home app
+and Siri operated side A's fan accessory and the group through the deployed
+Hoboken (`ghcr.io/shields/hoboken:20261021.2`) and Tucson
+(`ghcr.io/shields/tucson:20261021.6`, `write_mode: multi_dp`). Tucson's
+`command_write` and `command_result` log events give each packet below. All 19
+commands were confirmed, and Hoboken logged no heated bedding errors.
+
+- Tapping the tile on and off wrote `{14: true}` and `{14: false}`.
+- Dragging the slider to about 50% on a side that was off wrote `{14: false}`
+  first, then `level_1`, `level_4`, and `level_5`, each with power, as separate
+  commands about 0.65 seconds apart.
+- Dragging it to about 30% on a side that was on wrote `level_5`, `level_4`, and
+  `level_3`, each with power, as separate commands.
+- Turning the side off from its controls wrote `{14: true, 20: "level_3"}`, the
+  level it already had, and then `{14: false}` 0.35 seconds later.
+- "Turn on Michael Bed" wrote `{14: true}`, and saying it again while the side
+  was on wrote `{14: true}` again.
+- "Set Michael Bed to 60 percent" wrote `{14: true, 20: "level_6"}`, and "turn
+  off Michael Bed" wrote `{14: false}`.
+- "Turn on the Bed" wrote `{14: true}` and `{15: true}` for the group, which was
+  off, and "turn off the Bed" turned both sides off.
+
+A HomeKit turn-on is power alone, and slider drags and repeated Siri commands
+send power with a level to a side that is already on. Each command was confirmed
+before the next arrived. The deployed Hoboken predates the six-hour power-on
+timer, so these commands carried no timer.
+
 ## Qualification record
 
 Record the date, physical model, controller firmware, actual protocol version,
@@ -305,15 +374,15 @@ device/account identifiers and real local keys.
 | Device identity, firmware, and local protocol                             | Verified: style PP21KQ, main module V2.1.6, MCU module V1.0.10, protocol 3.3                                                                                                                                                                                                                                                                                                                                                                          |
 | A/B orientation and required reported fields                              | Partial: required fields are reported, and the controller’s A and B map to the A and B DPs. The manual puts A on the left of the bed and B on the right; which side of the bed each zone heats is not yet recorded.                                                                                                                                                                                                                                   |
 | Power and all 10 levels independently on each side                        | Verified: power on both sides from the controller and the adapter, and every level from 1 to 10 written through the adapter and read back on each side (see [Level sweep of 2026-10-18](#level-sweep-of-2026-10-18)).                                                                                                                                                                                                                                 |
-| Every supported timer enum and `Stay_On` duration                         | Verified: all 21 values were echoed with the matching remaining time on both sides, including `Stay_On` at 86,400 seconds. Side A spells 7.5 hours `7h30` and side B `7h30m`; an unrecognized value is ignored and resets the remaining time to 86,400 seconds.                                                                                                                                                                                       |
+| Every supported timer enum and `Stay_On` duration                         | Verified: all 21 values were echoed with the matching remaining time on both sides, including `Stay_On` at 86,400 seconds. Side A spells 7.5 hours `7h30` and side B `7h30m`; an unrecognized value is ignored and resets the remaining time to 86,400 seconds. Writing a timer restarts the countdown even when the value is unchanged; power and level writes to a side that is on leave it alone.                                                  |
 | Level selection for a side that is off                                    | Verified: the firmware turns a side on when a level is written, even with power off in the same packet, so a level cannot be selected while a side stays off. The worker therefore sends a level for a side that is off with an explicit power-on.                                                                                                                                                                                                    |
 | Power-off/on preserves the selected level                                 | Verified: power off from the adapter kept the level, and power on alone resumed at it.                                                                                                                                                                                                                                                                                                                                                                |
-| Verified individual-write ordering or multi-DP behavior                   | Verified: `multi_dp` applies power, timer, and level in one packet. In the smoke test the daemon sent every command that reached the controller as one packet. A timer must accompany or follow power because the firmware ignores it for a side that is off, and a level write turns the side on.                                                                                                                                                    |
+| Verified individual-write ordering or multi-DP behavior                   | Verified: `multi_dp` applies power, timer, and level in one packet. In the smoke test the daemon sent every command that reached the controller as one packet. A timer must accompany or follow power because the firmware ignores it for a side that is off, and a level write turns the side on. A two-DP packet of power and timer, with no level, applied both on each side.                                                                      |
 | Preheat activation, cancellation, completion, and side effects            | Partial: activation and cancellation verified from the controller on both sides and from the adapter on side A. Preheat written from off turned either side on at level 10 with 1,800 seconds remaining, started no presence window, and ended 30 minutes later by returning to the stored level with the side still on and the auto-off timer running through it. Cancelling preheat through the adapter on side B is pending.                       |
 | Physical controls reflected in reported state                             | Verified for power, heat level, and preheat on both sides                                                                                                                                                                                                                                                                                                                                                                                             |
 | Timer expiry and remote presence-confirmation behavior                    | Partial: the one-hour rule lowered level 5 to level 4 after an app activation (both zones) and after a LAN power-on at level 5 (side B); the check button or power-off returned DP 104 to `User_Confirmation`. Level writes (level 5 held for 62 minutes) and a preheat from off started no window. A 30-minute timer expired on side A, turning it off and resetting its timer setting to `10h`. Expiry of other durations and on side B is pending. |
 | Cold boot, Wi-Fi, bridge, and broker interruption/recovery                | Pending                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Home/Siri controls, inactive speed display, errors, and recovery          | Pending                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Home/Siri controls, inactive speed display, errors, and recovery          | Partial: Home app and Siri power, speed, slider, and group commands through the deployed Hoboken and Tucson were confirmed on side A and the group (see [HomeKit commands of 2026-10-20](#homekit-commands-of-2026-10-20)). Errors, recovery, and the inactive speed display are pending.                                                                                                                                                             |
 | Seven consecutive days with controller and bridge Internet access blocked | Pending                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 For the soak, record start/end times, LAN firewall rules, interruptions
