@@ -70,7 +70,13 @@
   packageRules: [
     {
       description: "Automerge non-major updates behind required checks",
-      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      matchUpdateTypes: [
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "lockFileMaintenance",
+      ],
       automerge: true,
     },
     {
