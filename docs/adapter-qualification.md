@@ -278,10 +278,11 @@ real TinyTuya/TCP simulator. The curtain case starts Tucson through
 The Sunbeam cases verify independent levels on both zones, stateful preheat, and
 off precedence with selected-level preservation; the curtain cases verify
 position targets. Decoded device writes must match the expected payloads
-exactly: the level, preheat, and off writes for the Sunbeam, and the position
-writes for the curtain. A controller-originated push updates HomeKit without
-another write; Tucson shutdown then makes every zone unavailable. Process,
-socket, and pairing-state cleanup runs on failures as well as successful exits.
+exactly: the level writes with Hoboken's six-hour power-on timer, preheat, and
+off for the Sunbeam, and the position writes for the curtain. A
+controller-originated push updates HomeKit without another write; Tucson
+shutdown then makes every zone unavailable. Process, socket, and pairing-state
+cleanup runs on failures as well as successful exits.
 
 The assertions also check that synthetic key/password values do not appear in
 the collected application logs. These cases qualify interoperability between the

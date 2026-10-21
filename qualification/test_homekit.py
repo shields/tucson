@@ -115,8 +115,8 @@ async def test_controller_through_paired_homekit(
             [{"202": 20}, {"202": 100}]
             if curtain
             else [
-                {"14": True, "20": "level_6"},
-                {"15": True, "21": "level_8"},
+                {"14": True, "20": "level_6", "26": "6h"},
+                {"15": True, "21": "level_8", "27": "6h"},
                 {"24": True},
                 {"14": False},
             ]

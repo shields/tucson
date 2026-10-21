@@ -295,9 +295,10 @@ controller’s presence-confirmation window. A `power: true` command is sent as
 given. The firmware ignores a timer for a side that is off, so
 `auto_off_seconds` without `power` or `heat_level` is rejected with `zone_off`
 for a side that is off. Hoboken explicitly sends both fields for a positive
-speed request. Enabling or disabling preheat writes its verified DP and reflects
-any firmware side effects in reported state, which includes turning the side on
-at level 10.
+speed request, and adds a six-hour `auto_off_seconds` to a power-on unless the
+side is already on. Enabling or disabling preheat writes its verified DP and
+reflects any firmware side effects in reported state, which includes turning the
+side on at level 10.
 
 Use a terminal outcome of `confirmed`, `rejected`, or `unconfirmed`:
 
@@ -506,6 +507,13 @@ differences with Hoboken’s current setup during its implementation phase.
 | `RotationSpeed = 0`      | `{"power": false}`; preserve selected level.      |
 | Positive `RotationSpeed` | `{"power": true, "heat_level": N}`.               |
 | Preheat switch changes   | `{"preheat": true}` or `{"preheat": false}`.      |
+
+A `power: true` command also carries `"auto_off_seconds": 21600`, because the
+firmware returns the timer to 10 hours whenever a side turns off. Hoboken leaves
+the timer out only while the zone reports power on and no power-off is in
+flight, because a timer write restarts the countdown even when unchanged; a
+power-on still in flight can fail, so it does not count. Preheat from off keeps
+the firmware's default.
 
 For a finite percentage `p` in `(0, 100]`, calculate
 `N = min(10, max(1, floor(p / 10 + 0.5)))`. This defines half-step rounding
