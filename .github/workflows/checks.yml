@@ -29,7 +29,7 @@ concurrency:
 jobs:
   checks:
     name: Lint and coverage
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,7 +50,7 @@ jobs:
       - run: make build
   zizmor:
     name: Workflow security
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,7 +104,7 @@ jobs:
     name: Publish tested images
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [checks, zizmor, image]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write # Uploads images that passed every required check in this run.
