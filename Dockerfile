@@ -23,7 +23,7 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python \
 ARG SOURCE_DATE_EPOCH=0
 ENV SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH
 WORKDIR /build
-RUN uv python install 3.15.1
+RUN uv python install 3.15.2
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
