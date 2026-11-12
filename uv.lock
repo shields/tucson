@@ -686,7 +686,7 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.26.0" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "structlog", specifier = ">=26.1.0" },
-    { name = "tinytuya", specifier = "==1.20.0" },
+    { name = "tinytuya", specifier = "==1.21.0" },
 ]
 
 [package.metadata.requires-dev]
