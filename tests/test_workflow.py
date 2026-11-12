@@ -143,7 +143,8 @@ console.log(JSON.stringify({config, matches}));
         "moby/buildkit": 1,
     }
     config = data["config"]
-    assert config["platformAutomerge"] is True
+    assert "github>shields/right-answers//renovate/base.json5" in config["extends"]
+    assert "platformAutomerge" not in config
     assert config["ignoreTests"] is False
     rules = config["packageRules"]
     assert any(

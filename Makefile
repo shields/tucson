@@ -52,12 +52,12 @@ fmt:
 	uv run --frozen ruff format .
 	$(PRETTIER) --write $(DOCS)
 
-lint:
+lint: actions-lock-verify-local
 	uv run --frozen ruff format --check .
 	uv run --frozen ruff check .
 	uv run --frozen ty check src
 	$(PRETTIER) --check $(DOCS)
-	uv run --frozen zizmor --offline --persona pedantic .github/workflows
+	uv run --frozen zizmor --offline --persona pedantic --strict-collection .
 
 test:
 	PATH="$(TEST_PATH)" uv run --frozen pytest --cov --cov-branch --cov-report=term-missing
@@ -129,3 +129,17 @@ test-broker:
 	git -C $(TEST_BROKER_SOURCE) diff --exit-code HEAD
 	cmake -S $(TEST_BROKER_SOURCE) -B $(TEST_BROKER_BUILD) -DWITH_TESTS=OFF -DWITH_DOCS=OFF -DWITH_APPS=OFF -DWITH_PLUGINS=OFF -DWITH_CLIENTS=OFF -DWITH_CTRL_SHELL=OFF
 	cmake --build $(TEST_BROKER_BUILD) --target mosquitto --parallel
+
+.PHONY: actions-lock-install actions-lock actions-lock-verify-local actions-lock-verify
+
+actions-lock-install:
+	gh extension install github/gh-actions-lock --pin v0.4.1 --force
+
+actions-lock:
+	gh actions-lock --no-interactive
+
+actions-lock-verify-local:
+	gh actions-lock --verify-local
+
+actions-lock-verify:
+	gh actions-lock --verify
