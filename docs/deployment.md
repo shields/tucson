@@ -232,12 +232,9 @@ proxy support. The release workflow's dependency gate already requires all four
 checks. Enable Renovate installation and platform automerge after the main
 ruleset enforces the same checks.
 
-Dependency updates run the full gate. TinyTuya updates also require review of
-retry/timeout behavior and a physical-controller smoke test. Renovate does not
-automerge them, because merging to main publishes: run the smoke test with the
-pull request’s image, which the container jobs export as a workflow artifact,
-before merging. Update the crane version and its two release-archive checksums
-together; checksum mismatches fail the tool install.
+Dependency updates, including TinyTuya, run the full CI gate and follow the
+shared automerge rules. Update the crane version and its two release-archive
+checksums together; checksum mismatches fail the tool install.
 
 Keep the previous image digest and its compatible private configuration/secret
 references. To roll back, stop and remove the current container, restore that

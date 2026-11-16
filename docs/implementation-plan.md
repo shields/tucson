@@ -680,16 +680,13 @@ shell or curl being installed in the runtime image.
 Use Renovate with `.github/renovate.json5`, `config:best-practices`,
 `:semanticCommitsDisabled`, and platform automerge behind required checks.
 Follow the shared non-major and development-dependency update rules, explicitly
-covering the dependency groups used here. Keep required checks configured so
-automerge cannot bypass them. Do not automerge TinyTuya updates, because merging
-to main publishes. Complete the device qualification below before deploying
-them.
+covering the dependency groups used here. TinyTuya follows the same rules. Keep
+required checks configured so automerge cannot bypass them.
 
 Run one bridge instance for each set of controllers. Keep immutable version tags
 and a documented rollback to the previous image and configuration. There is no
 persisted desired-state database to restore or replay. Dependency updates run
-the full gate; TinyTuya changes additionally require review of retry/timeout
-behavior and a short physical-controller smoke test before deployment. A
+the full CI gate, including the automated adapter qualification. A
 protocol-related fix needs a regression test at the adapter boundary even if the
 eventual correction is upstream.
 

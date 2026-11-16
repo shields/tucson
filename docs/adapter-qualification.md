@@ -31,7 +31,7 @@ prove behavior against a simulator, not compatibility with a Sunbeam controller.
 The published simulator declares TinyTuya 1.18.1. A uv dependency override tests
 it against the application’s pinned 1.20.0 without downgrading the runtime or
 copying protocol code. This development-only compatibility decision is qualified
-by the maintained TCP cases; any TinyTuya update must repeat qualification.
+by the maintained TCP cases, which run in CI for every dependency update.
 
 ## Public-control policy
 
@@ -140,8 +140,9 @@ rejection had come first, instead of treating it as a device failure.
 The adapter reads the `raw_sent` and `raw_recv` attributes of TinyTuya’s
 `Device` to know which command it sent, which frame it just read, and whether
 that frame acknowledges a BCD300FB write. These are undocumented internals, but
-`uv.lock` pins the version and a TinyTuya update already requires repeating this
-qualification. Renaming either attribute fails every status query immediately.
+`uv.lock` pins the version and CI repeats this automated qualification for every
+dependency update. Renaming either attribute fails every status query
+immediately.
 
 ## Maintained cases
 

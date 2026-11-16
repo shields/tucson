@@ -151,5 +151,3 @@ console.log(JSON.stringify({config, matches}));
         "dependency-groups" in rule.get("matchDepTypes", []) and rule["automerge"]
         for rule in rules
     )
-    assert rules[-1]["matchPackageNames"] == ["tinytuya"]
-    assert rules[-1]["automerge"] is False

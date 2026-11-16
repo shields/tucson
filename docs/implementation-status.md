@@ -83,9 +83,9 @@ targeted `N802` exclusion. Simulator instrumentation uses an existing decoded
 control handler and transport socket for fault injection, with a file-specific
 `SLF001` exclusion. Application code calls only TinyTuya’s public methods and
 reads the undocumented `raw_sent` and `raw_recv` attributes of `Device` to match
-a status reply to its query and a control acknowledgment to its write; a
-TinyTuya update must repeat the
-[adapter qualification](adapter-qualification.md), which records the dependency.
+a status reply to its query and a control acknowledgment to its write. CI runs
+the automated [adapter qualification](adapter-qualification.md) on every
+dependency update; that document records the dependency on these attributes.
 
 Local `make lint` runs zizmor’s pedantic audit offline so hooks require no
 GitHub credentials. The separate required CI workflow-security job runs the full
