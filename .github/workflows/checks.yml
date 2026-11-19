@@ -39,7 +39,7 @@ jobs:
           version: "0.13.9"
       - uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: "1.4.4"
+          bun-version: "1.4.5"
           no-cache: true
       - run: make setup
       - run: make actions-lock-install
