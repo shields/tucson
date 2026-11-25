@@ -62,7 +62,7 @@ jobs:
         with:
           persona: pedantic
           advanced-security: false
-          version: "1.32.0"
+          version: "1.33.1"
   image:
     name: Container (${{ matrix.arch }})
     strategy:
